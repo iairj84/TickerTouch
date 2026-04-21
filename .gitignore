@@ -1,0 +1,7 @@
+# Ignore sensitive config files
+config.h
+secrets.h
+
+# Ignore Arduino build folders
+build/
+bin/

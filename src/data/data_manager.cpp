@@ -611,25 +611,22 @@ void fetchSports() {
   Serial.printf("[Sports] total=%d\n", scoreCount);
 }
 
-// ── Stocks via Finnhub ────────────────────────────────────────────────────────
+// ── Stocks via Yahoo Finance (no API key required) ────────────────────────────
 void fetchStocks() {
-  stockCount=0;
-  stocksReady=false;
-  if (!strlen(Storage::cfg.stocks)) { stocksReady=true; return; }
-  if (!strlen(Storage::cfg.finnhubKey)) {
-    Serial.println(F("[Stocks] No Finnhub key — enter in settings"));
-    stocksReady=true; return;
-  }
+  stockCount = 0;
+  stocksReady = false;
+  if (!strlen(Storage::cfg.stocks)) { stocksReady = true; return; }
 
-  // Small DRAM buffer for each Finnhub response
-  char stockBuf[256];
+  // Yahoo Finance v8 chart API — free, no key, returns current price + prev close
+  // Response: {"chart":{"result":[{"meta":{"regularMarketPrice":X,"chartPreviousClose":Y,...}}]}}
+  char stockBuf[512];
 
   char syms[sizeof(Storage::cfg.stocks)];
   strlcpy(syms, Storage::cfg.stocks, sizeof(syms));
 
   char *start = syms;
   while (*start && stockCount < MAX_STOCKS) {
-    esp_task_wdt_reset(); // one HTTPS request per symbol — can be slow
+    esp_task_wdt_reset();
     char *comma = strchr(start, ',');
     if (comma) *comma = '\0';
 
@@ -640,41 +637,41 @@ void fetchStocks() {
     sym[si] = '\0';
 
     if (si > 0) {
-      char url[220];
+      char url[200];
       snprintf(url, sizeof(url),
-        "https://finnhub.io/api/v1/quote?symbol=%s&token=%s",
-        sym, Storage::cfg.finnhubKey);
-      int len = httpGET_buf(url, stockBuf, sizeof(stockBuf), 6000);
+        "https://query1.finance.yahoo.com/v8/finance/chart/%s"
+        "?interval=1d&range=1d&includePrePost=false", sym);
+      int len = httpGET_buf(url, stockBuf, sizeof(stockBuf), 8000);
       if (len > 0) {
-        StaticJsonDocument<256> doc;
-        if (deserializeJson(doc, stockBuf) == DeserializationError::Ok) {
-          float price = doc["c"]|0.0f;
-          float prev  = doc["pc"]|0.0f;
-          float dp    = doc["dp"]|0.0f;
-          if (price > 0.01f) {
-            strlcpy(stocks[stockCount].symbol, sym, sizeof(stocks[stockCount].symbol));
-            stocks[stockCount].price = price;
-            stocks[stockCount].changePercent = dp;
-            stocks[stockCount].marketClosed = false;
-            Serial.printf("[Stocks] %s $%.2f %+.2f%%\n", sym, price, dp);
-            stockCount++;
-          } else if (prev > 0.01f) {
-            strlcpy(stocks[stockCount].symbol, sym, sizeof(stocks[stockCount].symbol));
-            stocks[stockCount].price = prev;
-            stocks[stockCount].changePercent = 0.0f;
-            stocks[stockCount].marketClosed = true;
-            Serial.printf("[Stocks] %s $%.2f (closed)\n", sym, prev);
-            stockCount++;
-          } else {
-            Serial.printf("[Stocks] %s: no data\n", sym);
-          }
+        // Parse price from "regularMarketPrice":X
+        float price = 0.0f, prev = 0.0f;
+        char *pp = strstr(stockBuf, "\"regularMarketPrice\":");
+        if (pp) price = atof(pp + 21);
+        char *pc = strstr(stockBuf, "\"chartPreviousClose\":");
+        if (!pc) pc = strstr(stockBuf, "\"regularMarketPreviousClose\":");
+        if (pc) {
+          const char *vp = strchr(pc, ':');
+          if (vp) prev = atof(vp + 1);
         }
+        float dp = (prev > 0.01f && price > 0.01f) ? ((price - prev) / prev * 100.0f) : 0.0f;
+        if (price > 0.01f) {
+          strlcpy(stocks[stockCount].symbol, sym, sizeof(stocks[stockCount].symbol));
+          stocks[stockCount].price = price;
+          stocks[stockCount].changePercent = dp;
+          stocks[stockCount].marketClosed = false;
+          Serial.printf("[Stocks] %s $%.2f %+.2f%%\n", sym, price, dp);
+          stockCount++;
+        } else {
+          Serial.printf("[Stocks] %s: no price (len=%d)\n", sym, len);
+        }
+      } else {
+        Serial.printf("[Stocks] %s: fetch failed\n", sym);
       }
-    } // end if (si > 0)
+    }
 
-    if (comma) { *comma = ','; start = comma+1; } else break;
+    if (comma) { *comma = ','; start = comma + 1; } else break;
   }
-  stocksReady=true;
+  stocksReady = true;
   Serial.printf("[Stocks] done: %d\n", stockCount);
 }
 

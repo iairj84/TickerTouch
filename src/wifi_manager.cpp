@@ -93,7 +93,7 @@ input:focus,select:focus{border-color:#6366f1}
 <div class="section"><strong>Stocks</strong>
 <label>Tickers (comma-separated, e.g. AAPL, MSFT, SPY)</label>
 <input type="text" name="stocks" value="SPY,AAPL,TSLA,NVDA">
-<p class="note">Requires a free Finnhub API key - add it in settings after connecting.</p>
+<p class="note">Prices via Yahoo Finance - no API key needed.</p>
 </div>
 
 <div class="section"><strong>Theme</strong>
@@ -320,7 +320,7 @@ static String settingsPage() {
   h += "<input type='text' name='stocks' value='";
   h += Storage::cfg.stocks;
   h += "'>";
-  h += "<small style='color:#888'>US stocks &amp; ETFs via Finnhub.</small>";
+  h += "<small style='color:#888'>US stocks &amp; ETFs. Prices via Yahoo Finance - no API key needed.</small>";
   h += "<label style='margin-top:8px'>Crypto (CoinGecko IDs, e.g. bitcoin,ethereum,solana)</label>";
   h += "<input type='text' name='crypto' value='";
   h += Storage::cfg.crypto;

@@ -66,8 +66,7 @@ Visit the device IP address in a browser while on the same network. The IP is sh
 | Location & Weather | Up to 3 cities. Each city is geocoded automatically on first save. |
 | Sports Leagues | Enable/disable: NFL, NBA, NHL, MLB, MLS, EPL, CFB, CBB, WNBA, NASCAR, F1, IndyCar, PGA Golf |
 | Sports Filter | Select specific teams — leave all unchecked to show everything. Leagues not yet enabled are shown greyed out but can still be pre-configured. |
-| Stocks | Comma-separated tickers (e.g. SPY, AAPL, TSLA). Requires Finnhub API key. |
-| Finnhub API Key | Free key from finnhub.io — required for stock prices |
+| Stocks | Comma-separated tickers (e.g. SPY, AAPL, TSLA). Prices via Yahoo Finance - no API key needed. |
 | Crypto | Comma-separated CoinGecko IDs (e.g. bitcoin, ethereum, solana) |
 | Calendar | iCal URL from Google, Outlook, or Apple Calendar |
 | Visible Tabs | Toggle Sports, Finance, Weather, Calendar tabs on/off |
@@ -150,7 +149,7 @@ Activates after configurable idle timeout. Shows a large bouncing clock, date, a
 | Motorsports / Golf | ESPN public scoreboard API | No |
 | Weather | Open-Meteo | No |
 | Geocoding | Open-Meteo + Nominatim fallback | No |
-| Stocks | Finnhub | Yes — free at finnhub.io |
+| Stocks | Yahoo Finance | No |
 | Crypto | CoinGecko | No |
 | Calendar | iCal (any provider) | No |
 | Timezone | ip-api.com | No |
@@ -187,7 +186,7 @@ Motorsports and golf show "Off season" when no active event is found in the ESPN
 
 **Calendar shows "Loading..."** — large iCal feeds take up to 30 seconds to stream and parse. Use a single specific Google/Outlook/Apple calendar rather than a merged "all calendars" feed.
 
-**Stocks showing "No Finnhub key"** — add your free Finnhub API key in the web settings page under Finnhub API Key.
+**Stocks not showing prices** — Yahoo Finance is used directly, no API key required. Check your ticker symbols are valid US tickers.
 
 **Location not geocoding** — make sure you enter both City and State/Region in the settings, then save. The device geocodes on first save and caches the coordinates.
 

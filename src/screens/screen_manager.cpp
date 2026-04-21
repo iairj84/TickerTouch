@@ -1016,12 +1016,8 @@ void ScreenManager::showSettings() {
   y += 18;
 
   if (!strlen(Storage::cfg.finnhubKey)) {
-    lv_obj_t *warnLbl = lv_label_create(panel);
-    lv_label_set_text(warnLbl, "! No Finnhub key - stocks disabled");
-    lv_obj_set_style_text_color(warnLbl, lv_color_make(245,158,11), 0);
-    lv_obj_set_style_text_font(warnLbl, &lv_font_montserrat_12, 0);
-    lv_obj_set_pos(warnLbl, 0, y);
-    y += 16;
+    // Finnhub key is optional — stocks use Yahoo Finance now
+    // Only show warning if user has explicitly entered a key (legacy) that seems wrong
   }
   y += 6;
 
