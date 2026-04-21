@@ -1,0 +1,12 @@
+{
+  "name": "TickerTouch",
+  "version": "1.0.0",
+  "builds": [
+    {
+      "chipFamily": "ESP32-S3",
+      "parts": [
+        { "path": "TickerTouch.ino.merged.bin", "offset": 0 }
+      ]
+    }
+  ]
+}
