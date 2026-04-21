@@ -18,7 +18,6 @@ void load() {
   // If somehow 0, reset to defaults
   if (cfg.sportsLeagues == 0) cfg.sportsLeagues = 0b00001111;
   cfg.tickerSpeed  = prefs.getUChar("tspeed", 2);
-  cfg.brightness   = prefs.getUChar("brightness", 200);
   cfg.clock24h     = prefs.getBool("clock24h", false);
 
   prefs.getString(NVS_KEY_STOCKS, cfg.stocks, sizeof(cfg.stocks));
@@ -32,23 +31,10 @@ void load() {
   if (strlen(cfg.city) == 0) strlcpy(cfg.city, "New York", sizeof(cfg.city));
   prefs.getString("state", cfg.state, sizeof(cfg.state));
 
-  cfg.lat = prefs.getFloat(NVS_KEY_LAT, 0.0f);
+  cfg.lat = prefs.getFloat(NVS_KEY_LAT, 0.0f);  // 0 = not geocoded
   cfg.lon = prefs.getFloat(NVS_KEY_LON, 0.0f);
-  cfg.weatherCityCount = prefs.getUChar("wcityCount", 1);
-  if (cfg.weatherCityCount < 1) cfg.weatherCityCount = 1;
-  if (cfg.weatherCityCount > 3) cfg.weatherCityCount = 3;
-  prefs.getString("city2", cfg.extraCities[0].city,  sizeof(cfg.extraCities[0].city));
-  prefs.getString("state2",cfg.extraCities[0].state, sizeof(cfg.extraCities[0].state));
-  cfg.extraCities[0].lat = prefs.getFloat("lat2", 0.0f);
-  cfg.extraCities[0].lon = prefs.getFloat("lon2", 0.0f);
-  prefs.getString("city3", cfg.extraCities[1].city,  sizeof(cfg.extraCities[1].city));
-  prefs.getString("state3",cfg.extraCities[1].state, sizeof(cfg.extraCities[1].state));
-  cfg.extraCities[1].lat = prefs.getFloat("lat3", 0.0f);
-  cfg.extraCities[1].lon = prefs.getFloat("lon3", 0.0f);
   prefs.getString("icalUrl", cfg.icalUrl, sizeof(cfg.icalUrl));
-  cfg.tabMask = prefs.getUChar("tabMask", 0b0111);
-  prefs.getString("teamFilter", cfg.teamFilter, sizeof(cfg.teamFilter));
-  prefs.getString("cfbConf", cfg.cfbConf, sizeof(cfg.cfbConf)); // Sports+Finance+Weather default
+  cfg.tabMask = prefs.getUChar("tabMask", 0b0111); // Sports+Finance+Weather default
 }
 
 void save() {
@@ -57,7 +43,6 @@ void save() {
   prefs.putUInt(NVS_KEY_WIDGETS, cfg.widgetMask);
   prefs.putUInt(NVS_KEY_SPORTS, cfg.sportsLeagues);
   prefs.putUChar("tspeed", cfg.tickerSpeed);
-  prefs.putUChar("brightness", cfg.brightness);
   prefs.putBool("clock24h", cfg.clock24h);
   prefs.putString(NVS_KEY_STOCKS, cfg.stocks);
   prefs.putString(NVS_KEY_CRYPTO, cfg.crypto);
@@ -66,19 +51,8 @@ void save() {
   prefs.putString("finnhub", cfg.finnhubKey);
   prefs.putFloat(NVS_KEY_LAT, cfg.lat);
   prefs.putFloat(NVS_KEY_LON, cfg.lon);
-  prefs.putUChar("wcityCount", cfg.weatherCityCount);
-  prefs.putString("city2",  cfg.extraCities[0].city);
-  prefs.putString("state2", cfg.extraCities[0].state);
-  prefs.putFloat("lat2",    cfg.extraCities[0].lat);
-  prefs.putFloat("lon2",    cfg.extraCities[0].lon);
-  prefs.putString("city3",  cfg.extraCities[1].city);
-  prefs.putString("state3", cfg.extraCities[1].state);
-  prefs.putFloat("lat3",    cfg.extraCities[1].lat);
-  prefs.putFloat("lon3",    cfg.extraCities[1].lon);
   prefs.putString("icalUrl", cfg.icalUrl);
   prefs.putUChar("tabMask", cfg.tabMask);
-  prefs.putString("teamFilter", cfg.teamFilter);
-  prefs.putString("cfbConf", cfg.cfbConf);
 }
 
 bool isConfigured() { return cfg.configured; }

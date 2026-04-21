@@ -1,0 +1,32 @@
+# TickerTouch — Required Libraries
+# Install all via Arduino Library Manager unless noted
+
+[REQUIRED]
+bb_captouch          by Larry Bank    — capacitive touch (GT911)
+                                        Search "bb_captouch" in Library Manager
+GFX Library          1.4.7            — "GFX Library for Arduino" by moononournation
+                                        USE 1.4.7 — newer versions have RGB panel bug
+LVGL                 8.3.11           — do NOT use 9.x (breaking API changes)
+ArduinoJson          6.21.5           — do NOT update to 7.x
+ESP32 core           2.0.14           — Boards Manager
+
+[TOUCH PINS — confirmed from Halo-F1 source]
+SDA = 8
+SCL = 4   <-- this was wrong in previous builds (was 9)
+INT = 3   <-- interrupt pin IS connected on this board
+RST = -1  <-- no reset pin used by bb_captouch
+
+[NO LONGER NEEDED — can uninstall]
+TAMC_GT911
+TouchLib (mmMicky version)
+
+[lv_conf.h placement]
+Copy lv_conf.h to: Arduino/libraries/lv_conf.h
+(one level ABOVE the lvgl/ folder, NOT inside it)
+
+[Board settings]
+Board:             ESP32S3 Dev Module
+Flash Size:        4MB (32Mb)
+PSRAM:             OPI PSRAM
+Partition:         Huge APP (3MB No OTA/1MB SPIFFS)
+USB CDC On Boot:   Enabled   <-- IMPORTANT for Serial Monitor

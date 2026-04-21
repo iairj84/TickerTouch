@@ -1,7 +1,6 @@
 #include "wifi_manager.h"
 #include "storage.h"
 #include "data/data_manager.h"
-#include "sports_teams.h"
 #include <Preferences.h>
 
 // Declared in TickerTouch.ino — must be outside any namespace
@@ -50,32 +49,26 @@ input:focus,select:focus{border-color:#6366f1}
 .wifi-item.sel{border-color:#6366f1;background:#1a1a30}
 .scan-btn{margin-top:.5rem;padding:.45rem 1rem;background:transparent;border:1px solid #2a2a3a;border-radius:6px;color:#aaa;cursor:pointer;font-size:.85rem}
 #pw-row{display:none;margin-top:.5rem}
-.note{font-size:.78rem;color:#555;margin-top:.3rem}
 </style></head>
 <body><div class="card">
 <div style="font-size:1.8rem;margin-bottom:.4rem">📊</div>
-<h1>TickerTouch Setup</h1><p class="sub">First-time configuration - you can change all of this later</p>
+<h1>TickerTouch Setup</h1><p class="sub">First-time configuration</p>
 <form id="f" action="/save" method="POST">
 <input type="hidden" name="ssid" id="h_ssid">
 <input type="hidden" name="pass" id="h_pass">
-
 <div class="section"><strong>WiFi Network</strong>
 <div class="wifi-list" id="wlist"><em style="color:#666;font-size:.85rem">Tap Scan</em></div>
 <button type="button" class="scan-btn" onclick="doScan()">⟳ Scan</button>
 <div id="pw-row"><label>Password for <span id="pw-label"></span></label>
-<input type="password" id="pw" oninput="document.getElementById('h_pass').value=this.value"></div>
-</div>
-
+<input type="password" id="pw" oninput="document.getElementById('h_pass').value=this.value"></div></div>
 <div class="section"><strong>Location</strong>
-<label>City</label>
-<input type="text" name="city" placeholder="Portland">
-<label>State / Region</label>
-<input type="text" name="state" placeholder="Oregon">
-</div>
-
-<div class="section"><strong>Sports Leagues</strong>
+<label>City name</label>
+<input type="text" name="city" placeholder="Portland" value="Portland">
+<label>State / Region <small style="color:#888">(e.g. Oregon, helps resolve ambiguous cities)</small></label>
+<input type="text" name="state" placeholder="Oregon"></div>
+<div class="section"><strong>Sports</strong>
 <div class="grid">
-<label class="check"><input type="checkbox" name="nfl"> NFL</label>
+<label class="check"><input type="checkbox" name="nfl" checked> NFL</label>
 <label class="check"><input type="checkbox" name="nba" checked> NBA</label>
 <label class="check"><input type="checkbox" name="nhl" checked> NHL</label>
 <label class="check"><input type="checkbox" name="mlb" checked> MLB</label>
@@ -83,29 +76,19 @@ input:focus,select:focus{border-color:#6366f1}
 <label class="check"><input type="checkbox" name="mls"> MLS</label>
 <label class="check"><input type="checkbox" name="epl"> EPL</label>
 <label class="check"><input type="checkbox" name="cbb"> College BB</label>
-<label class="check"><input type="checkbox" name="wnba"> WNBA</label>
-<label class="check"><input type="checkbox" name="nascar"> NASCAR</label>
-<label class="check"><input type="checkbox" name="f1"> F1</label>
-<label class="check"><input type="checkbox" name="indycar"> IndyCar</label>
-<label class="check"><input type="checkbox" name="pga"> PGA Golf</label>
 </div></div>
-
 <div class="section"><strong>Stocks</strong>
-<label>Tickers (comma-separated, e.g. AAPL, MSFT, SPY)</label>
-<input type="text" name="stocks" value="SPY,AAPL,TSLA,NVDA">
-<p class="note">Requires a free Finnhub API key - add it in settings after connecting.</p>
-</div>
-
+<label>Tickers (comma-separated)</label>
+<input type="text" name="stocks" value="SPY,AAPL,TSLA,NVDA"></div>
+<div class="section"><strong>Stock Data API Key</strong>
+<label>Finnhub API Key <small style="color:#6366f1">(<a href="https://finnhub.io" target="_blank" style="color:#6366f1">free at finnhub.io</a>)</small></label>
+<input type="text" name="finnhub" placeholder="Paste your free Finnhub key here"></div>
 <div class="section"><strong>Theme</strong>
 <select name="theme">
-<option value="0">Dark</option>
-<option value="3">Clean</option>
-<option value="1">Retro</option>
-<option value="2">Neon</option>
-<option value="4">Sports</option>
+<option value="0">Dark</option><option value="3">Clean</option>
+<option value="1">Retro</option><option value="2">Neon</option><option value="4">Sports</option>
 </select></div>
-
-<button class="btn" type="button" onclick="go()">Save &amp; Connect</button>
+<button class="btn" type="button" onclick="go()">Save &amp; Connect →</button>
 </form></div>
 <script>
 var sel='';
@@ -179,38 +162,24 @@ static String settingsPage() {
 
   h += "<form method='POST' action='/save'>";
 
-  // Location + Weather Cities
+  // Location
   h += "<div class='section'><strong>Location &amp; Weather</strong>";
-  h += "<label>City 1 <small style='color:#888'>(primary)</small></label>";
-  h += "<div style='display:flex;gap:.5rem'>";
+  h += "<label>City name</label>";
   h += "<input type='text' name='city' placeholder='Portland' value='";
-  h += Storage::cfg.city; h += "' style='flex:2'>";
-  h += "<input type='text' name='state' placeholder='State' value='";
-  h += Storage::cfg.state; h += "' style='flex:1'>";
-  h += "</div>";
+  h += Storage::cfg.city;
+  h += "'>";
+  h += "<label>State / Region <small style='color:#888'>(helps resolve ambiguous cities)</small></label>";
+  h += "<input type='text' name='state' placeholder='Oregon' value='";
+  h += Storage::cfg.state;
+  h += "'>";
   if (Storage::cfg.lat != 0.0f) {
-    h += "<div class='info' style='color:#22c55e'>&#10003; Geocoded: ";
-    h += String(Storage::cfg.lat,4); h += ", "; h += String(Storage::cfg.lon,4);
+    h += "<div class='info' style='color:#22c55e'>&#10003; Location: ";
+    h += String(Storage::cfg.lat, 4);
+    h += ", ";
+    h += String(Storage::cfg.lon, 4);
     h += "</div>";
   } else {
-    h += "<div class='info' style='color:#f59e0b'>&#9888; Not geocoded yet — save to geocode</div>";
-  }
-
-  // Extra cities
-  for (int i = 0; i < 2; i++) {
-    auto &ec = Storage::cfg.extraCities[i];
-    h += "<label style='margin-top:8px'>City "; h += String(i+2);
-    h += " <small style='color:#888'>(optional)</small></label>";
-    h += "<div style='display:flex;gap:.5rem'>";
-    h += "<input type='text' name='city"; h += String(i+2);
-    h += "' placeholder='e.g. Seattle' value='"; h += ec.city; h += "' style='flex:2'>";
-    h += "<input type='text' name='state"; h += String(i+2);
-    h += "' placeholder='State' value='"; h += ec.state; h += "' style='flex:1'>";
-    h += "</div>";
-    if (ec.lat != 0.0f) {
-      h += "<div class='info' style='color:#22c55e;font-size:.72rem'>&#10003; ";
-      h += String(ec.lat,4); h += ", "; h += String(ec.lon,4); h += "</div>";
-    }
+    h += "<div class='info' style='color:#f59e0b'>&#9888; No coordinates yet — save to geocode</div>";
   }
   h += "</div>";
 
@@ -218,9 +187,7 @@ static String settingsPage() {
   h += "<div class='section'><strong>Sports</strong><div class='grid'>";
   struct { const char*n; const char*l; uint16_t b; } sp[]={
     {"nfl","NFL",1<<0},{"nba","NBA",1<<1},{"nhl","NHL",1<<2},{"mlb","MLB",1<<3},
-    {"cfb","College FB",1<<4},{"mls","MLS",1<<5},{"epl","EPL",1<<6},{"cbb","College BB",1<<7},
-    {"wnba","WNBA",1<<8},{"nascar","NASCAR",1<<9},{"f1","F1",1<<10},
-    {"indycar","IndyCar",1<<11},{"pga","PGA Golf",1<<12}
+    {"cfb","College FB",1<<4},{"mls","MLS",1<<5},{"epl","EPL",1<<6},{"cbb","College BB",1<<7}
   };
   for (auto &s:sp) {
     h += "<label class='ck'><input type='checkbox' name='";
@@ -230,107 +197,17 @@ static String settingsPage() {
   }
   h += "</div></div>";
 
-  // Sports Filter — all leagues shown always; disabled ones appear dimmed
-  h += "<div class='section'>"
-       "<div style='display:flex;align-items:center;justify-content:space-between;"
-       "cursor:pointer;padding:.2rem 0' onclick=\"tog('sf')\">"
-       "<strong>Sports Filter</strong>"
-       "<span id='sf_arr' style='color:#6366f1;font-size:.8rem'>&#9660; expand</span>"
-       "</div>"
-       "<div id='sf' style='display:none;margin-top:.5rem'>"
-       "<p style='color:#888;font-size:.82rem;margin-bottom:.6rem'>"
-       "Select teams to show only their games. Leave all unselected to show everything. "
-       "Leagues shown in grey are not currently enabled in the Sports section above.</p>"
-       "<input type='hidden' name='teamFilter' id='tfv' value='";
-  h += Storage::cfg.teamFilter;
-  h += "'><input type='hidden' name='cfbConf' id='cfv' value='";
-  h += Storage::cfg.cfbConf;
-  h += "'>";
-
-  struct LgDef { const char *id,*label; const TeamDef *teams; int tc; const ConfDef *confs; int cc; uint16_t bit; };
-  LgDef lgs[] = {
-    {"NFL","NFL",  NFL_TEAMS, 32,nullptr,0,1<<0},
-    {"NBA","NBA",  NBA_TEAMS, 30,nullptr,0,1<<1},
-    {"NHL","NHL",  NHL_TEAMS, 33,nullptr,0,1<<2},
-    {"MLB","MLB",  MLB_TEAMS, 30,nullptr,0,1<<3},
-    {"CFB","College Football",nullptr,0,CFB_CONFS,12,1<<4},
-    {"MLS","MLS",  MLS_TEAMS, 29,nullptr,0,1<<5},
-    {"EPL","EPL",  EPL_TEAMS, 20,nullptr,0,1<<6},
-    {"CBB","College Basketball",nullptr,0,CBB_CONFS,11,1<<7},
-    {"WNBA","WNBA",WNBA_TEAMS,15,nullptr,0,1<<8},
-  };
-  uint16_t sl = Storage::cfg.sportsLeagues;
-
-  for (auto &lg : lgs) {
-    bool on = (sl & lg.bit) != 0;
-    h += "<div style='margin-top:.4rem;border:1px solid ";
-    h += on ? "#2a2a3a" : "#1e1e28";
-    h += ";border-radius:8px;overflow:hidden'>";
-    h += "<div onclick=\"tog('l_"; h += lg.id; h += "')\""
-         " style='display:flex;justify-content:space-between;align-items:center;"
-         "padding:.35rem .7rem;background:#12121a;cursor:pointer'>"
-         "<span style='font-size:.75rem;font-weight:600;color:";
-    h += on ? "#6366f1" : "#444";
-    h += ";text-transform:uppercase;letter-spacing:.05em'>"; h += lg.label;
-    if (!on) h += " <span style='font-size:.68rem;color:#444;text-transform:none'>(not enabled)</span>";
-    h += "</span><span style='font-size:.68rem;color:#444'>▼</span></div>";
-    h += "<div id='l_"; h += lg.id; h += "' style='display:none;padding:.4rem .5rem'>";
-    if (lg.teams && lg.tc > 0) {
-      h += "<div class='grid'>";
-      for (int i=0;i<lg.tc;i++) {
-        h += "<label class='ck' style='font-size:.78rem'><input type='checkbox' class='tf' data-abbr='";
-        h += lg.id; h += ":"; h += lg.teams[i].abbr;
-        h += "'> "; h += lg.teams[i].name; h += "</label>";
-      }
-      h += "</div>";
-    }
-    if (lg.confs && lg.cc > 0) {
-      h += "<div class='grid'>";
-      for (int i=0;i<lg.cc;i++) {
-        h += "<label class='ck' style='font-size:.78rem'><input type='checkbox' class='cf' data-conf='";
-        h += lg.confs[i].id; h += "'> "; h += lg.confs[i].name; h += "</label>";
-      }
-      h += "</div>";
-    }
-    h += "</div></div>";
-  }
-
-  h += "<script>"
-    "function tog(id){var el=document.getElementById(id);if(!el)return;"
-    "el.style.display=el.style.display==='none'?'block':'none';"
-    "var a=document.getElementById(id+'_arr');if(a)a.textContent=el.style.display==='block'?'\u25b2 collapse':'\u25bc expand';}"
-    "var sv=document.getElementById('tfv').value.split(',').map(function(s){return s.trim().toUpperCase();}).filter(Boolean);"
-    "var sc=document.getElementById('cfv').value.split(',').map(function(s){return s.trim();}).filter(Boolean);"
-    "document.querySelectorAll('.tf').forEach(function(cb){"
-    "if(sv.indexOf(cb.dataset.abbr.toUpperCase())>=0){cb.checked=true;"
-    "var p=cb.closest('[id^=l_]');if(p)p.style.display='block';}});"
-    "document.querySelectorAll('.cf').forEach(function(cb){"
-    "if(sc.indexOf(cb.dataset.conf)>=0){cb.checked=true;"
-    "var p=cb.closest('[id^=l_]');if(p)p.style.display='block';}});"
-    "if(sv.length||sc.length){var sf=document.getElementById('sf');if(sf)sf.style.display='block';"
-    "var a=document.getElementById('sf_arr');if(a)a.textContent='\u25b2 collapse';}"
-    "document.querySelector('form').addEventListener('submit',function(){"
-    "var t=[];document.querySelectorAll('.tf:checked').forEach(function(cb){t.push(cb.dataset.abbr);});"
-    "document.getElementById('tfv').value=t.join(',');"
-    "var c=[];document.querySelectorAll('.cf:checked').forEach(function(cb){c.push(cb.dataset.conf);});"
-    "document.getElementById('cfv').value=c.join(',');});"
-    "</script></div></div>";
-    h += "<div class='section'><strong>Stocks &amp; Crypto</strong>";
-  h += "<label>Stock Tickers (comma-separated, e.g. AAPL,MSFT,SPY)</label>";
+  // Stocks
+  h += "<div class='section'><strong>Stocks</strong>";
+  h += "<label>Tickers (comma-separated, e.g. AAPL,MSFT,SPY)</label>";
   h += "<input type='text' name='stocks' value='";
   h += Storage::cfg.stocks;
   h += "'>";
-  h += "<small style='color:#888'>US stocks &amp; ETFs via Finnhub.</small>";
-  h += "<label style='margin-top:8px'>Crypto (CoinGecko IDs, e.g. bitcoin,ethereum,solana)</label>";
-  h += "<input type='text' name='crypto' value='";
-  h += Storage::cfg.crypto;
-  h += "'>";
-  h += "<small style='color:#888'>Free, no API key. Use CoinGecko IDs: bitcoin, ethereum, solana, dogecoin, cardano, ripple, etc.</small>";
+  h += "<small style='color:#888'>US stocks &amp; ETFs. Data from stooq.com - no API key needed.</small>";
   h += "</div>";
 
-  // Theme + Display
-  h += "<div class='section'><strong>Display</strong>";
-  h += "<label>Theme</label><select name='theme'>";
+  // Theme
+  h += "<div class='section'><strong>Display Theme</strong><select name='theme'>";
   const char* themes[]={"Dark","Retro","Neon","Clean","Sports"};
   int tvals[]={0,1,2,3,4};
   for (int i=0;i<5;i++) {
@@ -338,24 +215,18 @@ static String settingsPage() {
     if (Storage::cfg.theme==tvals[i]) h += " selected";
     h += ">"; h += themes[i]; h += "</option>";
   }
-  h += "</select>";
-
-  h += "</div>";
+  h += "</select></div>";
 
   // Calendar
   h += "<div class='section'><strong>Calendar</strong>";
-  h += "<label>iCal URL <small style='color:#888'>(Google / Outlook / Apple)</small></label>";
+  h += "<label>iCal URL <small style='color:#888'>(Google/Outlook/Apple iCal feed)</small></label>";
   h += "<input type='text' name='icalUrl' placeholder='https://calendar.google.com/calendar/ical/...' value='";
   h += Storage::cfg.icalUrl;
   h += "'>";
-  h += "<div style='margin-top:.6rem;font-size:.8rem;color:#888;line-height:1.7'>"
-       "<div><b style='color:#aaa'>Google</b> - Settings &rarr; pick ONE specific calendar "
-       "(not &lsquo;My calendars&rsquo;) &rarr; Secret address in iCal format</div>"
-       "<div><b style='color:#aaa'>Outlook</b> - Calendar &rarr; Share &rarr; Get a link &rarr; ICS</div>"
-       "<div><b style='color:#aaa'>Apple</b> - iCloud.com &rarr; Calendar &rarr; Share icon &rarr; Public Calendar URL</div>"
-       "<div style='margin-top:.4rem;color:#555;font-size:.75rem'>"
-       "Use one specific calendar, not a merged feed - keeps it small and fast.</div>"
-       "</div></div>";
+  h += "<small style='color:#888'><b>Google:</b> Settings &rarr; pick ONE specific calendar (not 'My calendars') &rarr; 'Secret address in iCal format'. ";
+  h += "Using a single calendar with only upcoming events keeps the feed small and fast. ";
+  h += "<b>Outlook:</b> Calendar &rarr; Share &rarr; Get a link &rarr; ICS. ";
+  h += "<b>Apple:</b> iCloud.com &rarr; Calendar &rarr; share icon &rarr; Public Calendar URL.</small></div>";
 
   // Tab visibility
   h += "<div class='section'><strong>Visible Tabs</strong><div class='grid'>";
@@ -371,14 +242,14 @@ static String settingsPage() {
   }
   h += "</div></div>";
 
+  // WiFi section
+  h += "<div class='section'><strong>Change WiFi</strong>";
+  h += "<label>New network (leave blank to keep current)</label>";
+  h += "<input type='text' name='new_ssid' placeholder='Network name'>";
+  h += "<label>Password</label>";
+  h += "<input type='password' name='new_pass' placeholder='Password'></div>";
+
   h += "<button class='btn' type='submit'>Save Settings</button>";
-  // Restart button — outside the form, uses a separate endpoint
-  h += "<button class='btn' type='button' "
-       "style='margin-top:.5rem;background:#374151' "
-       "onclick=\"if(confirm('Restart TickerTouch?')){"
-       "this.textContent='Restarting...';this.disabled=true;"
-       "fetch('/restart',{method:'POST'});}\">"
-       "Restart Device</button>";
   h += "</form></div></body></html>";
   return h;
 }
@@ -402,35 +273,16 @@ static void handleSettingsSave() {
   if (state.length()) state.toCharArray(Storage::cfg.state, sizeof(Storage::cfg.state));
   else if (locationChanged) Storage::cfg.state[0] = '\0';
 
-  // Extra weather cities
-  uint8_t cityCount = 1;
-  for (int i = 0; i < 2; i++) {
-    auto &ec = Storage::cfg.extraCities[i];
-    String cn = server.arg(String("city")  + String(i+2)); cn.trim();
-    String sn = server.arg(String("state") + String(i+2)); sn.trim();
-    bool changed = (cn.length() && cn != String(ec.city)) || (sn != String(ec.state));
-    if (changed) { ec.lat = 0.0f; ec.lon = 0.0f; }
-    if (cn.length()) { cn.toCharArray(ec.city,  sizeof(ec.city));
-                       sn.toCharArray(ec.state, sizeof(ec.state)); cityCount++; }
-    else { ec.city[0] = '\0'; ec.state[0] = '\0'; ec.lat = 0.0f; ec.lon = 0.0f; }
-  }
-  Storage::cfg.weatherCityCount = cityCount;
-
   // Sports — build bitmask from submitted checkboxes
   uint16_t sports = 0;
-  if (server.arg("nfl").length())  sports |= (1<<0);
-  if (server.arg("nba").length())  sports |= (1<<1);
-  if (server.arg("nhl").length())  sports |= (1<<2);
-  if (server.arg("mlb").length())  sports |= (1<<3);
-  if (server.arg("cfb").length())  sports |= (1<<4);
-  if (server.arg("mls").length())  sports |= (1<<5);
-  if (server.arg("epl").length())  sports |= (1<<6);
-  if (server.arg("cbb").length())  sports |= (1<<7);
-  if (server.arg("wnba").length())    sports |= (1<<8);
-  if (server.arg("nascar").length())  sports |= (1<<9);
-  if (server.arg("f1").length())      sports |= (1<<10);
-  if (server.arg("indycar").length()) sports |= (1<<11);
-  if (server.arg("pga").length())     sports |= (1<<12);
+  if (server.arg("nfl").length()) sports |= (1<<0);
+  if (server.arg("nba").length()) sports |= (1<<1);
+  if (server.arg("nhl").length()) sports |= (1<<2);
+  if (server.arg("mlb").length()) sports |= (1<<3);
+  if (server.arg("cfb").length()) sports |= (1<<4);
+  if (server.arg("mls").length()) sports |= (1<<5);
+  if (server.arg("epl").length()) sports |= (1<<6);
+  if (server.arg("cbb").length()) sports |= (1<<7);
   Storage::cfg.sportsLeagues = sports;
   Serial.printf("[Settings] saved leagues bitmask=%d\n", sports);
 
@@ -439,11 +291,8 @@ static void handleSettingsSave() {
   stocks.trim();
   if (stocks.length()) stocks.toCharArray(Storage::cfg.stocks, sizeof(Storage::cfg.stocks));
 
-  // Crypto
-  String crypto = server.arg("crypto");
-  crypto.trim();
-  if (crypto.length()) crypto.toCharArray(Storage::cfg.crypto, sizeof(Storage::cfg.crypto));
-  else Storage::cfg.crypto[0] = '\0';
+  // Crypto — removed (HTTPS not supported on this hardware)
+  // String crypto = server.arg("crypto");
 
   // Finnhub API key
   String finnhub = server.arg("finnhub");
@@ -455,23 +304,6 @@ static void handleSettingsSave() {
   String icalUrl = server.arg("icalUrl");
   icalUrl.trim();
   icalUrl.toCharArray(Storage::cfg.icalUrl, sizeof(Storage::cfg.icalUrl));
-
-  // Sports filter — capture old values to detect changes
-  char oldTeamFilter[sizeof(Storage::cfg.teamFilter)];
-  char oldCfbConf[sizeof(Storage::cfg.cfbConf)];
-  strlcpy(oldTeamFilter, Storage::cfg.teamFilter, sizeof(oldTeamFilter));
-  strlcpy(oldCfbConf, Storage::cfg.cfbConf, sizeof(oldCfbConf));
-
-  String teamFilter = server.arg("teamFilter");
-  teamFilter.trim();
-  teamFilter.toCharArray(Storage::cfg.teamFilter, sizeof(Storage::cfg.teamFilter));
-
-  String cfbConf = server.arg("cfbConf");
-  cfbConf.trim();
-  cfbConf.toCharArray(Storage::cfg.cfbConf, sizeof(Storage::cfg.cfbConf));
-
-  bool filterChanged = strcmp(oldTeamFilter, Storage::cfg.teamFilter) != 0 ||
-                       strcmp(oldCfbConf, Storage::cfg.cfbConf) != 0;
 
   // Tab visibility bitmask
   Storage::cfg.tabMask = 0;
@@ -486,9 +318,8 @@ static void handleSettingsSave() {
 
   // Save everything to NVS
   Storage::save();
-  Serial.printf("[Settings] saved: city=%s stocks=%s crypto=%s sports=%d filter=%s\n",
-    Storage::cfg.city, Storage::cfg.stocks, Storage::cfg.crypto,
-    Storage::cfg.sportsLeagues, Storage::cfg.teamFilter);
+  Serial.printf("[Settings] saved: city=%s stocks=%s crypto=%s sports=%d\n",
+    Storage::cfg.city, Storage::cfg.stocks, Storage::cfg.crypto, Storage::cfg.sportsLeagues);
 
   // WiFi change (only if new SSID provided)
   String newSSID = server.arg("new_ssid");
@@ -508,31 +339,14 @@ static void handleSettingsSave() {
     return;
   }
 
-  // Team filter change — restart so widgets rebuild cleanly from scratch
-  if (filterChanged) {
-    server.send(200, "text/html",
-      "<!DOCTYPE html><html><head><meta charset='UTF-8'>"
-      "<meta http-equiv='refresh' content='5;url=/'></head>"
-      "<body style='background:#0f0f14;color:#e8e8f0;font-family:sans-serif;"
-      "display:flex;align-items:center;justify-content:center;height:100vh;text-align:center'>"
-      "<div><div style='font-size:2rem'>🔄</div>"
-      "<h2 style='margin-top:.5rem'>Filter Updated</h2>"
-      "<p style='color:#6366f1;margin-top:.3rem'>Restarting... returning to settings in 5s</p>"
-      "</div></body></html>");
-    delay(1500);
-    ESP.restart();
-    return;
-  }
-
-  // Normal save — redirect back
+  // Redirect back to settings page with success message
   server.send(200, "text/html",
     "<!DOCTYPE html><html><head><meta charset='UTF-8'>"
     "<meta http-equiv='refresh' content='2;url=/'></head>"
     "<body style='background:#0f0f14;color:#e8e8f0;font-family:sans-serif;"
     "display:flex;align-items:center;justify-content:center;height:100vh;text-align:center'>"
-    "<div><div style='font-size:2rem'>✅</div>"
-    "<h2 style='margin-top:.5rem'>Saved</h2>"
-    "<p style='color:#6366f1;margin-top:.3rem'>Returning to settings...</p>"
+    "<div><h2 style='font-size:2rem'>OK</h2>"
+    "<p style='color:#6366f1;margin-top:.5rem'>Saved! Returning...</p>"
     "</div></body></html>");
 
   // Set a flag — picked up by mainTask on next tick
@@ -648,14 +462,9 @@ void connectSTA() {
 }
 
 void startSettingsServer() {
-  server.on("/",        HTTP_GET,  handleSettingsGet);
-  server.on("/save",    HTTP_POST, handleSettingsSave);
-  server.on("/scan",    HTTP_GET,  handleScan);
-  server.on("/restart", HTTP_POST, [](){
-    server.send(200, "text/plain", "Restarting...");
-    delay(500);
-    ESP.restart();
-  });
+  server.on("/",      HTTP_GET,  handleSettingsGet);
+  server.on("/save",  HTTP_POST, handleSettingsSave);
+  server.on("/scan",  HTTP_GET,  handleScan);
   server.begin();
   Serial.printf("[WiFi] Settings at http://%s/\n", WiFi.localIP().toString().c_str());
 }

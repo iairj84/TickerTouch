@@ -11,7 +11,6 @@
 #include <WiFiClientSecure.h>
 #include <ArduinoJson.h>
 #include <esp_heap_caps.h>   // heap_caps_malloc/free for DRAM-forced allocation
-#include <esp_task_wdt.h>    // esp_task_wdt_reset()
 
 namespace DataManager {
 
@@ -19,16 +18,10 @@ ScoreEntry  scores[MAX_SCORES]; uint8_t scoreCount  = 0;
 StockEntry  stocks[MAX_STOCKS];  uint8_t stockCount  = 0;
 CryptoEntry cryptos[MAX_CRYPTO]; uint8_t cryptoCount = 0;
 WeatherData weather{};
-WeatherData weatherCities[3]{};
-uint8_t     weatherCityCount = 1;
-RaceEntry   races[MAX_RACES]{};
-uint8_t     raceCount = 0;
-bool        racesReady = false;
 CalendarEvent calEvents[MAX_CAL_EVENTS]; uint8_t calCount = 0;
 bool weatherReady=false, scoresReady=false, stocksReady=false, cryptoReady=false, calReady=false;
 
-static uint32_t lastSports=0, lastStocks=0, lastWeather=0, lastCrypto=0, lastCalendar=0, lastRacing=0;
-#define REFRESH_RACING_MS   300000  // 5 min — races don't change that fast
+static uint32_t lastSports=0, lastStocks=0, lastWeather=0, lastCrypto=0, lastCalendar=0;
 #define REFRESH_CALENDAR_MS   900000  // 15 min
 
 // ── HTTP GET ──────────────────────────────────────────────────────────────────
@@ -277,15 +270,14 @@ static void convertGameTime(char *status, int statusLen) {
 struct LG { const char *path; const char *abbr; uint16_t bit; };
 
 static const LG LGS[] = {
-  {"football/nfl",                        "NFL",  1<<0},
-  {"baseball/mlb",                        "MLB",  1<<3},
-  {"basketball/nba",                      "NBA",  1<<1},
-  {"football/college-football",           "CFB",  1<<4},
-  {"basketball/mens-college-basketball",  "CBB",  1<<7},
-  {"hockey/nhl",                          "NHL",  1<<2},
-  {"soccer/usa.1",                        "MLS",  1<<5},
-  {"soccer/eng.1",                        "EPL",  1<<6},
-  {"basketball/wnba",                     "WNBA", 1<<8},
+  {"football/nfl",                      "NFL",1<<0},
+  {"baseball/mlb",                      "MLB",1<<3},
+  {"basketball/nba",                    "NBA",1<<1},
+  {"football/college-football",         "CFB",1<<4},
+  {"basketball/mens-college-basketball","CBB",1<<7},
+  {"hockey/nhl",                        "NHL",1<<2},
+  {"soccer/usa.1",                      "MLS",1<<5},
+  {"soccer/eng.1",                      "EPL",1<<6},
 };
 
 // Forward declaration for sports stream fill
@@ -339,8 +331,6 @@ void fetchSports() {
   for (auto &lg : LGS) {
     if (!(mask & lg.bit)) continue;
 
-    esp_task_wdt_reset(); // reset watchdog — each league can take several seconds
-
     time_t now_t = time(nullptr);
     struct tm *lt = localtime(&now_t);
     char url[200];
@@ -355,14 +345,14 @@ void fetchSports() {
     HTTPClient http;
     WiFiClient client;
     if (!http.begin(client, url)) { heap_caps_free(buf); continue; }
-    http.setTimeout(8000);  // reduced from 10000
+    http.setTimeout(10000);
     http.addHeader("User-Agent", "TickerTouch/1.0");
     int code = http.GET();
     if (code != 200) {
       Serial.printf("[HTTP] %d %s\n", code, lg.abbr);
       http.end();
       client.stop();
-      vTaskDelay(pdMS_TO_TICKS(200));  // reduced from 500
+      vTaskDelay(pdMS_TO_TICKS(500));
       continue;
     }
 
@@ -370,7 +360,7 @@ void fetchSports() {
     int bLen = 0;
     int n = 0;
     buf[0] = 0;
-    uint32_t deadline = millis() + 8000;  // reduced from 12000
+    uint32_t deadline = millis() + 12000;
 
     // Initial fill — read first chunk quickly
     for (int i = 0; i < 30 && bLen < 200; i++) {
@@ -379,7 +369,6 @@ void fetchSports() {
     }
 
     while (millis() < deadline && stagingCount < MAX_SCORES) {
-      esp_task_wdt_reset(); // reset per game parsed — prevents WDT on large leagues
       // Ensure buffer has data
       if (bLen < 200) {
         sportsFill(stream, buf, bLen, BSIZ, deadline);
@@ -412,11 +401,8 @@ void fetchSports() {
 
       // Parse two competitor objects
       char homeTeam[8]="?", awayTeam[8]="?";
-      char homeName[32]={}, awayName[32]={};
       char homeScore[8]="0", awayScore[8]="0";
-      char homeConf[32]={}, awayConf[32]={};
       uint32_t homeColor=0x444444, awayColor=0x444444;
-      uint8_t homeRank=0, awayRank=0;
       int found = 0;
       char *p = cp + 15;
 
@@ -434,9 +420,8 @@ void fetchSports() {
 
         char sv = *oe; *oe = '\0';
 
-        char ha[8]={}, sc[8]="0", ab[8]="?", conf[32]={}, dn[32]={};
+        char ha[8]={}, sc[8]="0", ab[8]="?";
         uint32_t col = 0x444444;
-        uint8_t rank = 0;
 
         char *hap = strstr(os, "\"homeAway\":\"");
         if (hap) copyUntilQuote(ha, sizeof(ha), hap+12);
@@ -444,14 +429,7 @@ void fetchSports() {
         char *scp = strstr(os, "\"score\":\"");
         if (scp) copyUntilQuote(sc, sizeof(sc), scp+9);
 
-        // Rank from "curatedRank":{"current":N}
-        char *rkp = strstr(os, "\"curatedRank\":{");
-        if (rkp) {
-          char *rcp = strstr(rkp, "\"current\":");
-          if (rcp) { int r = atoi(rcp+10); if (r>0 && r<=25) rank=(uint8_t)r; }
-        }
-
-        // Only look for abbreviation and conference inside "team":{ block
+        // Only look for abbreviation inside "team":{ block
         char *tp = strstr(os, "\"team\":{");
         if (tp && tp < oe) {
           char *te = tp+8; int td=1;
@@ -459,14 +437,9 @@ void fetchSports() {
           char tsv=*te; *te='\0';
           char *ap=strstr(tp,"\"abbreviation\":\"");
           if (ap) copyUntilQuote(ab,sizeof(ab),ap+16);
-          char *dnp=strstr(tp,"\"displayName\":\"");
-          if (dnp) copyUntilQuote(dn,sizeof(dn),dnp+15);
           char *clp=strstr(tp,"\"color\":\"");
           if (clp) { char cs[8]={}; copyUntilQuote(cs,sizeof(cs),clp+9);
             if(strlen(cs)==6) col=(uint32_t)strtoul(cs,nullptr,16); }
-          // Conference short name
-          char *cfp=strstr(tp,"\"shortName\":\"");
-          if (cfp) copyUntilQuote(conf,sizeof(conf),cfp+13);
           *te=tsv;
         }
         *oe = sv;
@@ -474,17 +447,11 @@ void fetchSports() {
         if (!strcmp(ha,"home")) {
           strlcpy(homeTeam,ab,sizeof(homeTeam));
           strlcpy(homeScore,sc,sizeof(homeScore));
-          homeColor=col; homeRank=rank;
-          if (dn[0])   strlcpy(homeName,dn,sizeof(homeName));
-          if (conf[0] && !homeConf[0]) strlcpy(homeConf,conf,sizeof(homeConf));
-          found++;
+          homeColor=col; found++;
         } else if (!strcmp(ha,"away")) {
           strlcpy(awayTeam,ab,sizeof(awayTeam));
           strlcpy(awayScore,sc,sizeof(awayScore));
-          awayColor=col; awayRank=rank;
-          if (dn[0])   strlcpy(awayName,dn,sizeof(awayName));
-          if (conf[0] && !awayConf[0]) strlcpy(awayConf,conf,sizeof(awayConf));
-          found++;
+          awayColor=col; found++;
         }
       }
       // p now points past end of competitors array in buf
@@ -545,16 +512,10 @@ void fetchSports() {
         strlcpy(e.league,    lg.abbr,   sizeof(e.league));
         strlcpy(e.homeTeam,  homeTeam,  sizeof(e.homeTeam));
         strlcpy(e.awayTeam,  awayTeam,  sizeof(e.awayTeam));
-        strlcpy(e.homeName,  homeName[0] ? homeName : homeTeam, sizeof(e.homeName));
-        strlcpy(e.awayName,  awayName[0] ? awayName : awayTeam, sizeof(e.awayName));
         strlcpy(e.homeScore, homeScore, sizeof(e.homeScore));
         strlcpy(e.awayScore, awayScore, sizeof(e.awayScore));
         strlcpy(e.status,    status,    sizeof(e.status));
         e.homeColor=homeColor; e.awayColor=awayColor;
-        e.homeRank=homeRank;   e.awayRank=awayRank;
-        // Conference: prefer home team's conf, fallback to away
-        if (homeConf[0]) strlcpy(e.conference, homeConf, sizeof(e.conference));
-        else             strlcpy(e.conference, awayConf, sizeof(e.conference));
         Serial.printf("[Sports] %s: %s %s-%s %s (%s)\n",
           lg.abbr,e.awayTeam,e.awayScore,e.homeScore,e.homeTeam,e.status);
         n++;
@@ -629,7 +590,6 @@ void fetchStocks() {
 
   char *start = syms;
   while (*start && stockCount < MAX_STOCKS) {
-    esp_task_wdt_reset(); // one HTTPS request per symbol — can be slow
     char *comma = strchr(start, ',');
     if (comma) *comma = '\0';
 
@@ -678,283 +638,67 @@ void fetchStocks() {
   Serial.printf("[Stocks] done: %d\n", stockCount);
 }
 
-// ── Crypto via CoinGecko (free, no key) ────────────────────────────────────
-void fetchCrypto() {
-  if (!strlen(Storage::cfg.crypto)) { cryptoReady = true; return; }
-  if (!WiFiManager::isConnected())  { cryptoReady = true; return; }
-
-  char url[256];
-  snprintf(url, sizeof(url),
-    "https://api.coingecko.com/api/v3/simple/price"
-    "?ids=%s&vs_currencies=usd&include_24hr_change=true",
-    Storage::cfg.crypto);
-
-  const int CBUF = 1024;
-  char *cbuf = (char*)heap_caps_malloc(CBUF, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-  if (!cbuf) { cryptoReady = true; return; }
-
-  int len = httpGET_buf(url, cbuf, CBUF, 8000);
-
-  // Use staging so existing display data isn't wiped during fetch
-  CryptoEntry staging[MAX_CRYPTO];
-  uint8_t stagingCount = 0;
-
-  if (len > 0) {
-    char ids[sizeof(Storage::cfg.crypto)];
-    strlcpy(ids, Storage::cfg.crypto, sizeof(ids));
-    char *start = ids;
-    while (start && *start && stagingCount < MAX_CRYPTO) {
-      char *comma = strchr(start, ',');
-      if (comma) *comma = '\0';
-      while (*start == ' ') start++;
-      int si = strlen(start);
-      while (si > 0 && start[si-1] == ' ') start[--si] = '\0';
-
-      if (si > 0) {
-        char key[32]; snprintf(key, sizeof(key), "\"%s\":{", start);
-        char *p = strstr(cbuf, key);
-        if (p) {
-          float usd = 0, chg = 0;
-          char *up = strstr(p, "\"usd\":");
-          if (up) usd = atof(up + 6);
-          char *cp = strstr(p, "\"usd_24h_change\":");
-          if (cp) chg = atof(cp + 17);
-          if (usd > 0) {
-            strlcpy(staging[stagingCount].id, start, sizeof(staging[0].id));
-            char sym[8] = {};
-            if      (!strcmp(start,"bitcoin"))  strlcpy(sym,"BTC",sizeof(sym));
-            else if (!strcmp(start,"ethereum")) strlcpy(sym,"ETH",sizeof(sym));
-            else if (!strcmp(start,"solana"))   strlcpy(sym,"SOL",sizeof(sym));
-            else if (!strcmp(start,"dogecoin")) strlcpy(sym,"DOGE",sizeof(sym));
-            else if (!strcmp(start,"cardano"))  strlcpy(sym,"ADA",sizeof(sym));
-            else if (!strcmp(start,"ripple"))   strlcpy(sym,"XRP",sizeof(sym));
-            else { strlcpy(sym, start, 5); for(int i=0;sym[i];i++) sym[i]=toupper(sym[i]); }
-            strlcpy(staging[stagingCount].symbol, sym, sizeof(staging[0].symbol));
-            staging[stagingCount].priceUSD = usd;
-            staging[stagingCount].change24h = chg;
-            Serial.printf("[Crypto] %s $%.2f %+.2f%%\n", sym, usd, chg);
-            stagingCount++;
-          }
-        }
-      }
-      if (comma) { *comma = ','; start = comma + 1; } else break;
-    }
-  }
-  heap_caps_free(cbuf);
-
-  // Only commit if we got data — don't blank on transient fetch failure
-  if (stagingCount > 0) {
-    memcpy(cryptos, staging, stagingCount * sizeof(CryptoEntry));
-    cryptoCount = stagingCount;
-  }
-  cryptoReady = true;
-  Serial.printf("[Crypto] done: %d\n", cryptoCount);
-}
+// ── Crypto (disabled) ──────────────────────────────────────────────────────────
+void fetchCrypto() { cryptoCount=0; cryptoReady=true; }
 
 // ── Weather ─────────────────────────────────────────────────────────────────────
-// Fetch weather for one city into the given WeatherData slot
-static bool fetchWeatherCity(float lat, float lon, const char *cityName, WeatherData &out) {
+void fetchWeather() {
+  Serial.println(F("[Weather] fetching..."));
+  if (Storage::cfg.lat==0.0f&&Storage::cfg.lon==0.0f) {
+    geocodeCity();
+    if (Storage::cfg.lat==0.0f) { Serial.println(F("[Weather] no coords")); return; }
+  }
   char url[400];
-  snprintf(url, sizeof(url),
+  snprintf(url,sizeof(url),
     "http://api.open-meteo.com/v1/forecast"
     "?latitude=%.4f&longitude=%.4f"
     "&current=temperature_2m,weather_code,apparent_temperature,relative_humidity_2m,wind_speed_10m"
     "&daily=temperature_2m_max,temperature_2m_min,weather_code,precipitation_probability_max"
     "&temperature_unit=fahrenheit&wind_speed_unit=mph&forecast_days=4&timezone=auto",
-    lat, lon);
+    Storage::cfg.lat,Storage::cfg.lon);
 
+  // Heap-allocate to avoid stack overflow — response is ~800 bytes
   const int WX_BUF = 2048;
   char *wxBuf = (char*)heap_caps_malloc(WX_BUF, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-  if (!wxBuf) return false;
+  if (!wxBuf) { Serial.println(F("[Weather] alloc fail")); return; }
   int wxLen = httpGET_buf(url, wxBuf, WX_BUF, 10000);
-  if (wxLen == 0) { heap_caps_free(wxBuf); return false; }
-
+  if (wxLen == 0) {
+    Serial.println(F("[Weather] empty response"));
+    heap_caps_free(wxBuf); return;
+  }
+  Serial.printf("[Weather] got %d bytes\n", wxLen);
   StaticJsonDocument<2048> doc;
   DeserializationError err = deserializeJson(doc, wxBuf);
-  if (err != DeserializationError::Ok) { heap_caps_free(wxBuf); return false; }
-
-  JsonObject cur = doc["current"];
-  if (cur.isNull()) { heap_caps_free(wxBuf); return false; }
-  float t = cur["temperature_2m"] | -999.0f;
-  if (t < -998.0f) { heap_caps_free(wxBuf); return false; }
-
-  out.tempF       = t;
-  out.feelsLike   = cur["apparent_temperature"] | t;
-  out.weatherCode = cur["weather_code"] | 0;
-  out.humidity    = cur["relative_humidity_2m"] | 0;
-  out.windMph     = cur["wind_speed_10m"] | 0.0f;
-  out.highF = doc["daily"]["temperature_2m_max"][0] | t;
-  out.lowF  = doc["daily"]["temperature_2m_min"][0] | t;
-  for (int i = 0; i < 3; i++) {
-    out.forecast[i].highF     = doc["daily"]["temperature_2m_max"][i+1] | 0.0f;
-    out.forecast[i].lowF      = doc["daily"]["temperature_2m_min"][i+1] | 0.0f;
-    out.forecast[i].code      = doc["daily"]["weather_code"][i+1] | 0;
-    out.forecast[i].precipPct = doc["daily"]["precipitation_probability_max"][i+1] | 0;
+  if (err != DeserializationError::Ok) {
+    Serial.printf("[Weather] JSON fail: %s\n", err.c_str());
+    heap_caps_free(wxBuf); return;
   }
-  heap_caps_free(wxBuf);
-  strlcpy(out.city, cityName, sizeof(out.city));
-  strlcpy(out.description, wmoDesc(out.weatherCode), sizeof(out.description));
-  Serial.printf("[Weather] %s %.1fF (%s)\n", out.city, out.tempF, out.description);
-  return true;
-}
-
-void fetchWeather() {
-  Serial.println(F("[Weather] fetching..."));
-
-  // Geocode primary city if needed
-  if (Storage::cfg.lat == 0.0f && Storage::cfg.lon == 0.0f) {
-    geocodeCity();
-    if (Storage::cfg.lat == 0.0f) { Serial.println(F("[Weather] no coords")); return; }
+  JsonObject cur=doc["current"];
+  if (cur.isNull()) {
+    Serial.println(F("[Weather] no current"));
+    heap_caps_free(wxBuf); return;
   }
-  // Geocode extra cities if needed
-  for (int i = 0; i < 2; i++) {
-    auto &ec = Storage::cfg.extraCities[i];
-    if (strlen(ec.city) == 0) continue;
-    if (ec.lat == 0.0f && ec.lon == 0.0f) {
-      // Geocode this extra city using same mechanism
-      // Temporarily swap into main city slot, geocode, swap back
-      char savedCity[64], savedState[32];
-      float savedLat = Storage::cfg.lat, savedLon = Storage::cfg.lon;
-      strlcpy(savedCity,  Storage::cfg.city,  sizeof(savedCity));
-      strlcpy(savedState, Storage::cfg.state, sizeof(savedState));
-      strlcpy(Storage::cfg.city,  ec.city,  sizeof(Storage::cfg.city));
-      strlcpy(Storage::cfg.state, ec.state, sizeof(Storage::cfg.state));
-      Storage::cfg.lat = 0.0f; Storage::cfg.lon = 0.0f;
-      geocodeCity();
-      ec.lat = Storage::cfg.lat; ec.lon = Storage::cfg.lon;
-      // Restore
-      strlcpy(Storage::cfg.city,  savedCity,  sizeof(Storage::cfg.city));
-      strlcpy(Storage::cfg.state, savedState, sizeof(Storage::cfg.state));
-      Storage::cfg.lat = savedLat; Storage::cfg.lon = savedLon;
-      if (ec.lat != 0.0f) Storage::save(); // persist geocoded coords
-    }
+  float t=cur["temperature_2m"]|-999.0f;
+  if (t<-998.0f) { heap_caps_free(wxBuf); return; }
+  weather.tempF       = t;
+  weather.feelsLike   = cur["apparent_temperature"]|t;
+  weather.weatherCode = cur["weather_code"]|0;
+  weather.humidity    = cur["relative_humidity_2m"]|0;
+  weather.windMph     = cur["wind_speed_10m"]|0.0f;
+  weather.highF = doc["daily"]["temperature_2m_max"][0]|t;
+  weather.lowF  = doc["daily"]["temperature_2m_min"][0]|t;
+  for (int i=0;i<3;i++) {
+    weather.forecast[i].highF = doc["daily"]["temperature_2m_max"][i+1]|0.0f;
+    weather.forecast[i].lowF  = doc["daily"]["temperature_2m_min"][i+1]|0.0f;
+    weather.forecast[i].code  = doc["daily"]["weather_code"][i+1]|0;
+    weather.forecast[i].precipPct = doc["daily"]["precipitation_probability_max"][i+1]|0;
   }
-
-  // Fetch all configured cities
-  weatherCityCount = 0;
-  if (fetchWeatherCity(Storage::cfg.lat, Storage::cfg.lon, Storage::cfg.city, weatherCities[0]))
-    weatherCityCount++;
-
-  for (int i = 0; i < 2; i++) {
-    auto &ec = Storage::cfg.extraCities[i];
-    if (strlen(ec.city) == 0 || ec.lat == 0.0f) continue;
-    if (fetchWeatherCity(ec.lat, ec.lon, ec.city, weatherCities[weatherCityCount]))
-      weatherCityCount++;
-  }
-
-  if (weatherCityCount > 0) {
-    weather = weatherCities[0]; // keep primary alias in sync
-    weatherReady = true;
-  }
-  Serial.printf("[Weather] done: %d cities\n", weatherCityCount);
-}
-
-// ── Motorsports + Golf via ESPN ───────────────────────────────────────────────
-static void extractJsonStr(const char *buf, const char *key, char *out, int outLen) {
-  // Finds first occurrence of "key":"value" and copies value to out
-  char search[48]; snprintf(search, sizeof(search), "\"%s\":\"", key);
-  const char *p = strstr(buf, search);
-  if (!p) { out[0]='\0'; return; }
-  p += strlen(search);
-  const char *e = strchr(p, '"');
-  if (!e) { out[0]='\0'; return; }
-  int l = (int)(e-p); if (l>=outLen) l=outLen-1;
-  strncpy(out, p, l); out[l]='\0';
-}
-
-void fetchRacing() {
-  uint16_t mask = Storage::cfg.sportsLeagues;
-  raceCount = 0;
-
-  struct RS { const char *path; const char *abbr; uint16_t bit; };
-  static const RS SERIES[] = {
-    {"racing/nascar-premier", "NASCAR",  1<<9},
-    {"racing/f1",             "F1",      1<<10},
-    {"racing/irl",            "IndyCar", 1<<11},
-    {"golf/pga",              "PGA",     1<<12},
-  };
-
-  char *cbuf = (char*)heap_caps_malloc(4096, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-  if (!cbuf) return;
-
-  for (auto &s : SERIES) {
-    if (!(mask & s.bit)) continue;
-    if (raceCount >= MAX_RACES) break;
-    esp_task_wdt_reset();
-
-    char url[200];
-    snprintf(url, sizeof(url),
-      "http://site.api.espn.com/apis/site/v2/sports/%s/scoreboard", s.path);
-
-    int len = httpGET_buf(url, cbuf, 4096, 8000);
-    if (len <= 0) { Serial.printf("[Race] %s: no response\n", s.abbr); continue; }
-    Serial.printf("[Race] %s: %d bytes, start: %.120s\n", s.abbr, len, cbuf);
-
-    RaceEntry &e = races[raceCount];
-    memset(&e, 0, sizeof(e));
-    strlcpy(e.series, s.abbr, sizeof(e.series));
-
-    // ESPN racing scoreboard: events[0].name = race name
-    // If no events, check if the array exists but is empty
-    const char *eventsStart = strstr(cbuf, "\"events\":[");
-    if (!eventsStart) { Serial.printf("[Race] %s: no events key\n", s.abbr); continue; }
-
-    // Check if events array is empty: "events":[]
-    const char *afterBracket = eventsStart + 10; // skip past "events":[
-    while (*afterBracket == ' ') afterBracket++;
-    if (*afterBracket == ']') {
-      // Off-season or between events — show series name with "No active event"
-      strlcpy(e.event, "No active event", sizeof(e.event));
-      strlcpy(e.status, "Off season", sizeof(e.status));
-      Serial.printf("[Race] %s: off season\n", s.abbr);
-      raceCount++;
-      continue;
-    }
-
-    // Within the events array, find name/shortName
-    // "shortName" for races is typically the race title
-    extractJsonStr(eventsStart, "shortName", e.event, sizeof(e.event));
-    if (!e.event[0]) extractJsonStr(eventsStart, "name", e.event, sizeof(e.event));
-
-    // Status: look for "shortDetail" inside status object
-    // ESPN puts it as: "status":{"clock":...,"type":{"shortDetail":"Race Day"}}
-    const char *statusStart = strstr(eventsStart, "\"status\":");
-    if (statusStart) {
-      extractJsonStr(statusStart, "shortDetail", e.status, sizeof(e.status));
-      if (!e.status[0]) extractJsonStr(statusStart, "description", e.status, sizeof(e.status));
-      if (!e.status[0]) extractJsonStr(statusStart, "detail", e.status, sizeof(e.status));
-    }
-
-    // Leader: for motorsports, find position 1 in competitors
-    // Format: "position":{"id":"1",...} or "order":1
-    // Try finding the first competitor's athlete displayName
-    const char *compStart = strstr(eventsStart, "\"competitors\":");
-    if (compStart) {
-      // Find first competitor's athlete name
-      const char *athStart = strstr(compStart, "\"athlete\":");
-      if (athStart) {
-        extractJsonStr(athStart, "displayName", e.leader, sizeof(e.leader));
-        // Abbreviate to first + last initial if too long
-        if (strlen(e.leader) > 18) e.leader[18] = '\0';
-      }
-      // For golf: look for score/toPar
-      if (!strcmp(s.abbr, "PGA")) {
-        extractJsonStr(compStart, "score", e.detail, sizeof(e.detail));
-      } else {
-        // For motorsports try to get lap/position info
-        extractJsonStr(eventsStart, "displayClock", e.detail, sizeof(e.detail));
-      }
-    }
-
-    if (e.event[0] || e.status[0]) {
-      Serial.printf("[Race] %s: %s | %s | %s\n", e.series, e.event, e.status, e.leader);
-      raceCount++;
-    }
-  }
-
-  heap_caps_free(cbuf);
-  racesReady = true;
-  Serial.printf("[Race] done: %d series\n", raceCount);
+  heap_caps_free(wxBuf); // free only after all doc accesses complete
+  strlcpy(weather.city,Storage::cfg.city,sizeof(weather.city));
+  strlcpy(weather.description,wmoDesc(weather.weatherCode),sizeof(weather.description));
+  weatherReady=true;
+  Serial.printf("[Weather] %s %.1fF (%.0f/%.0f) %s\n",
+    weather.city,weather.tempF,weather.highF,weather.lowF,weather.description);
 }
 
 // ── Ticker ─────────────────────────────────────────────────────────────────────
@@ -1020,25 +764,23 @@ void fetchCalendar() {
   Serial.println(F("[Cal] fetching..."));
   if (!WiFiManager::isConnected()) { calReady = true; return; }
 
-  // Build date strings for today through next 6 days (7 total)
-  #define CAL_DAYS 7
+  // Get today's date in local time
   time_t now_t = time(nullptr);
-  char dateDays[CAL_DAYS][9];
-  char dateUTCnext[CAL_DAYS][9];
+  struct tm *lt = localtime(&now_t);
+  char today[9];
+  snprintf(today, sizeof(today), "%04d%02d%02d",
+    lt->tm_year+1900, lt->tm_mon+1, lt->tm_mday);
 
-  for (int d = 0; d < CAL_DAYS; d++) {
-    time_t dt = now_t + (time_t)d * 86400;
-    struct tm *lt2 = localtime(&dt);
-    snprintf(dateDays[d], sizeof(dateDays[d]), "%04d%02d%02d",
-      lt2->tm_year+1900, lt2->tm_mon+1, lt2->tm_mday);
-    // UTC "next day" that maps to this local day (for negative tz offsets)
-    time_t dt2 = dt + 86400;
-    struct tm *lt3 = localtime(&dt2);
-    snprintf(dateUTCnext[d], sizeof(dateUTCnext[d]), "%04d%02d%02d",
-      lt3->tm_year+1900, lt3->tm_mon+1, lt3->tm_mday);
-  }
+  // Tomorrow for end range
+  time_t tom_t = now_t + 86400;
+  struct tm *tt = localtime(&tom_t);
+  char tomorrow[9];
+  snprintf(tomorrow, sizeof(tomorrow), "%04d%02d%02d",
+    tt->tm_year+1900, tt->tm_mon+1, tt->tm_mday);
 
-  Serial.printf("[Cal] fetching for %s (+6 days)\n", dateDays[0]);
+  // Use base URL as-is — no params that balloon the feed size
+  // Just parse what comes and match dates
+  Serial.printf("[Cal] fetching for %s\n", today);
   const char *calUrl = Storage::cfg.icalUrl;
 
   // Connect
@@ -1072,8 +814,7 @@ void fetchCalendar() {
   char curTitle[64] = {};
   char curDtStart[32] = {};
   uint8_t stagingCount = 0;
-  static CalendarEvent staging[MAX_CAL_EVENTS]; // static — 50 events × ~100 bytes would overflow stack
-  memset(staging, 0, sizeof(staging));
+  CalendarEvent staging[MAX_CAL_EVENTS];
   int totalBytes = 0;
 
   auto processLine = [&]() {
@@ -1085,50 +826,43 @@ void fetchCalendar() {
       inEvent = true; curTitle[0] = '\0'; curDtStart[0] = '\0';
     } else if (strcmp(l, "END:VEVENT") == 0 && inEvent) {
       inEvent = false;
-      if (!strlen(curTitle) || !strlen(curDtStart)) return;
-
+      // For UTC events, a 5pm PDT event = midnight UTC = next calendar day in UTC.
+      // So we need to match both today AND tomorrow's UTC date.
       bool isUTC = (strlen(curDtStart) >= 16 && curDtStart[15] == 'Z');
-      int matchDay = -1; // which day 0-6 this event falls on, -1 = not in range
-
-      // Determine the UTC H/M offset once for UTC events
-      int utcH = 0, utcM = 0;
-      if (isUTC && strlen(curDtStart) >= 13)
-        sscanf(curDtStart + 9, "%2d%2d", &utcH, &utcM);
-
-      for (int d = 0; d < CAL_DAYS && matchDay < 0; d++) {
-        if (strncmp(curDtStart, dateDays[d], 8) == 0) {
-          if (!isUTC) {
-            matchDay = d; // non-UTC: date matches directly
-          } else {
-            int localMins = utcH*60 + utcM + (Storage::cfg.tzOffsetSec / 60);
-            if (localMins >= 0 && localMins < 1440) matchDay = d;
-            // if localMins >= 1440 the event is actually day d+1 — skip here, will match next iteration
-          }
-        }
-        // UTC events where UTC date = local date+1 (negative timezone, e.g. UTC event at 1am = prev local day)
-        if (matchDay < 0 && isUTC && strncmp(curDtStart, dateUTCnext[d], 8) == 0) {
-          int localMins = utcH*60 + utcM + (Storage::cfg.tzOffsetSec / 60);
-          if (localMins < 0) matchDay = d; // event is behind UTC, so local date is earlier
+      bool isToday = (strncmp(curDtStart, today, 8) == 0);
+      if (!isToday && isUTC) {
+        // Also check if UTC date is tomorrow but converts to today locally
+        // Parse the UTC datetime and apply local offset
+        int Y=0,Mo=0,D=0,H=0,Mi=0;
+        sscanf(curDtStart, "%4d%2d%2dT%2d%2d", &Y, &Mo, &D, &H, &Mi);
+        // Convert UTC minutes to local minutes-from-epoch-day
+        int utcMinsInDay = H*60 + Mi;
+        int localMinsInDay = utcMinsInDay + (Storage::cfg.tzOffsetSec / 60);
+        // If local time is negative, the local date is one day earlier than UTC date
+        if (localMinsInDay < 0) {
+          // UTC date is tomorrow relative to local date — check if UTC date == tomorrow
+          isToday = (strncmp(curDtStart, tomorrow, 8) == 0);
         }
       }
 
-      if (matchDay >= 0 && stagingCount < MAX_CAL_EVENTS) {
+      if (isToday && strlen(curTitle) > 0 && stagingCount < MAX_CAL_EVENTS) {
         CalendarEvent &e = staging[stagingCount++];
         strlcpy(e.title, curTitle, sizeof(e.title));
-        e.dayOffset = matchDay;
         bool isAllDay = (strlen(curDtStart) == 8);
         e.allDay = isAllDay;
         if (isAllDay) {
           strlcpy(e.timeStr, "All Day", sizeof(e.timeStr));
           e.startMinute = 9999;
         } else {
-          int hh = utcH, mm = utcM;
-          if (!isUTC && strlen(curDtStart) >= 13)
+          int hh = 0, mm = 0;
+          if (strlen(curDtStart) >= 13) {
             sscanf(curDtStart + 9, "%2d%2d", &hh, &mm);
-          if (isUTC) {
-            int localMins = hh*60 + mm + (Storage::cfg.tzOffsetSec/60);
-            localMins = ((localMins % 1440) + 1440) % 1440;
-            hh = localMins / 60; mm = localMins % 60;
+            // Convert UTC to local if Z suffix
+            if (isUTC) {
+              int localMins = hh*60 + mm + (Storage::cfg.tzOffsetSec/60);
+              localMins = ((localMins % 1440) + 1440) % 1440;
+              hh = localMins / 60; mm = localMins % 60;
+            }
           }
           e.startMinute = hh * 60 + mm;
           bool pm = (hh >= 12);
@@ -1169,23 +903,20 @@ void fetchCalendar() {
       if (!stream->connected()) { if (linePos > 0) processLine(); break; }
       vTaskDelay(1);
     } else if (totalBytes >= yieldAt) {
-      yieldAt += 32768;
-      vTaskDelay(1);
-      esp_task_wdt_reset(); // 540KB takes ~15s on slow connections
+      yieldAt += 32768; vTaskDelay(1);
     }
   }
   if (totalBytes >= MAX_CAL_BYTES && linePos > 0) processLine();
 
   http.end();
   if (strncmp(calUrl, "https", 5) == 0) tls.stop(); else plain.stop();
-  Serial.printf("[Cal] %d bytes, %d events (7-day)\n", totalBytes, stagingCount);
+  Serial.printf("[Cal] %d bytes, %d events today\n", totalBytes, stagingCount);
 
-  // Sort by dayOffset first, then startMinute within each day
+  // Sort by startMinute
   for (int i = 1; i < stagingCount; i++) {
     CalendarEvent key = staging[i];
     int j = i - 1;
-    while (j >= 0 && (staging[j].dayOffset > key.dayOffset ||
-           (staging[j].dayOffset == key.dayOffset && staging[j].startMinute > key.startMinute))) {
+    while (j >= 0 && staging[j].startMinute > key.startMinute) {
       staging[j+1] = staging[j]; j--;
     }
     staging[j+1] = key;
@@ -1204,8 +935,7 @@ void forceRefresh() {
   lastSports=big-REFRESH_SPORTS_MS; lastStocks=big-REFRESH_STOCKS_MS;
   lastWeather=big-REFRESH_WEATHER_MS; lastCrypto=big-REFRESH_CRYPTO_MS;
   lastCalendar=big-REFRESH_CALENDAR_MS;
-  // Reset ready flags — tabs will rebuild when data returns
-  scoresReady=false; stocksReady=false; weatherReady=false; cryptoReady=false; calReady=false;
+  scoresReady=false; stocksReady=false; weatherReady=false; cryptoReady=false;
 }
 
 // ── begin / tick ───────────────────────────────────────────────────────────────
@@ -1219,8 +949,7 @@ void begin() {
   lastStocks   = now - REFRESH_STOCKS_MS  + 10000;  // stocks fires 10s after boot
   lastWeather  = now - REFRESH_WEATHER_MS;           // weather fires immediately
   lastCalendar = now - REFRESH_CALENDAR_MS;          // calendar fires immediately
-  lastCrypto    = now - REFRESH_CRYPTO_MS + 15000;   // crypto fires 15s after boot
-  lastRacing   = now - REFRESH_RACING_MS  + 20000;   // racing fires 20s after boot
+  lastCrypto   = now;
   Serial.println(F("[Data] begin done"));
 }
 
@@ -1230,8 +959,7 @@ void tick() {
   if ((n-lastCalendar)>=REFRESH_CALENDAR_MS) { lastCalendar=millis(); fetchCalendar(); return; }
   if ((n-lastSports)  >=REFRESH_SPORTS_MS)   { lastSports  =millis(); fetchSports();   return; }
   if ((n-lastStocks)  >=REFRESH_STOCKS_MS)   { lastStocks  =millis(); fetchStocks();   return; }
-  if ((n-lastCrypto)  >=REFRESH_CRYPTO_MS)   { lastCrypto  =millis(); fetchCrypto();   return; }
-  if ((n-lastRacing)  >=REFRESH_RACING_MS)   { lastRacing  =millis(); fetchRacing();   return; }
+  if (!cryptoReady) cryptoReady=true;
 }
 
 } // namespace DataManager

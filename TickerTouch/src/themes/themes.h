@@ -98,16 +98,16 @@ inline ThemePalette get(uint8_t themeId) {
     // ── 4: Sports ─────────────────────────────────────────────────────────────
     case THEME_SPORTS:
       return {
-        .bg         = C(10,  24,  10),   // dark field green
-        .bg2        = C(18,  40,  18),   // medium green cards
-        .text       = C(230, 255, 230),  // light green-white
+        .bg         = C(10,  24,  10),
+        .bg2        = C(18,  40,  18),
+        .text       = C(230, 255, 230),
         .textMuted  = C(140, 200, 140),
-        .accent     = C(50,  200, 50),   // bright green
-        .accentAlt  = C(255, 215, 0),    // gold
+        .accent     = C(50,  200, 50),    // field green
+        .accentAlt  = C(255, 215, 0),     // gold
         .positive   = C(50,  200, 50),
         .negative   = C(255, 80,  80),
         .tickerBg   = C(8,   20,  8),
-        .tickerText = C(255, 215, 0),    // gold ticker
+        .tickerText = C(255, 215, 0),
         .border     = C(30,  70,  30),
         .name       = "Sports"
       };

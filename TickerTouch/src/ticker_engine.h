@@ -79,7 +79,6 @@ namespace TickerEngine {
 
   /** Pause / resume scrolling (e.g. while settings overlay is open). */
   void setPaused(bool paused);
-  const char* getFullString(); // returns current assembled ticker text
 
   /** Attach a new LVGL container after a theme/screen rebuild. */
   void reattach(lv_obj_t *newContainer);

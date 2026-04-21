@@ -34,30 +34,29 @@ static uint32_t lastCryptoRebuild  = 0;
 static uint32_t lastCalRebuild     = 0;
 
 // ── Scroll timer ──────────────────────────────────────────────────────────────
-static lv_timer_t *_scrollTimer = nullptr;
-
+static uint8_t _tickCount = 0;
 static void scrollTimerCb(lv_timer_t *) {
   if (paused || !scrollState.label) return;
-  // Always move 1px per tick — smoothness comes from interval, not jump size
-  scrollState.xPos -= 1;
+  _tickCount++;
+  // speed 1-5 mapped to pixels/tick at 32ms interval:
+  // 1 = 1px every 4 ticks (~8px/s)   2 = 1px every 2 ticks (~16px/s)
+  // 3 = 1px/tick (~30px/s)            4 = 2px/tick (~60px/s)
+  // 5 = 3px/tick (~90px/s)
+  uint8_t spd = scrollState.speed;
+  int move = 0;
+  if      (spd <= 1) { move = (_tickCount % 4 == 0) ? 1 : 0; }
+  else if (spd == 2) { move = (_tickCount % 2 == 0) ? 1 : 0; }
+  else if (spd == 3) { move = 1; }
+  else if (spd == 4) { move = 2; }
+  else               { move = 3; }
+  if (move == 0) return;
+  scrollState.xPos -= move;
   lv_coord_t labelW = lv_obj_get_width(scrollState.label);
   if (scrollState.xPos < -(labelW + 20)) {
     scrollState.xPos = TFT_WIDTH + 10;
     if (dirty) { refreshLabel(); dirty = false; }
   }
   lv_obj_set_x(scrollState.label, scrollState.xPos);
-}
-
-// Map speed 1-5 to timer interval in ms (lower = faster scroll)
-// 1 = ~40px/s,  2 = ~60px/s,  3 = ~80px/s,  4 = ~100px/s,  5 = ~140px/s
-static uint32_t speedToInterval(uint8_t spd) {
-  switch (spd) {
-    case 1:  return 25;
-    case 2:  return 17;
-    case 3:  return 12;
-    case 4:  return 10;
-    default: return 7;
-  }
 }
 
 // ── Segment builders ──────────────────────────────────────────────────────────
@@ -86,16 +85,14 @@ static void buildWeatherSegment() {
   TickerSegment &s = segments[SEG_WEATHER];
   s.type    = SEG_WEATHER;
   s.enabled = (Storage::cfg.widgetMask & WIDGET_WEATHER) != 0;
-  s.text[0] = '\0';
-  if (!s.enabled || !DataManager::weatherReady) return;
-  // Show all fetched cities separated by spaces
-  for (int i = 0; i < DataManager::weatherCityCount; i++) {
-    auto &w = DataManager::weatherCities[i];
-    char buf[128];
-    snprintf(buf, sizeof(buf), "%s %.0fF %s  H:%.0f L:%.0f    ",
-      w.city, w.tempF, w.description, w.highF, w.lowF);
-    strlcat(s.text, buf, sizeof(s.text));
+  if (!s.enabled || !DataManager::weatherReady) {
+    strlcpy(s.text, "", sizeof(s.text)); return;
   }
+  auto &w = DataManager::weather;
+  char buf[128];
+  snprintf(buf, sizeof(buf), "%s - Currently %.0fF and %s  High: %.0f  Low: %.0f    ",
+    w.city, w.tempF, w.description, w.highF, w.lowF);
+  strlcpy(s.text, buf, sizeof(s.text));
 }
 
 static void buildSportsSegment() {
@@ -109,44 +106,8 @@ static void buildSportsSegment() {
     strlcpy(s.text, "No games today    ", sizeof(s.text)); return;
   }
   s.text[0] = '\0';
-  bool anyShown = false;
   for (int i = 0; i < DataManager::scoreCount; i++) {
     auto &sc = DataManager::scores[i];
-
-    // Apply same team/conf filter as the UI tab
-    bool pass = true;
-    bool isCFB = (!strcmp(sc.league,"CFB") || !strcmp(sc.league,"CBB"));
-    if (isCFB && strlen(Storage::cfg.cfbConf) > 0) {
-      pass = false;
-      if (strstr(Storage::cfg.cfbConf, "Top 25")) {
-        if (sc.awayRank > 0 || sc.homeRank > 0) pass = true;
-      }
-      if (!pass) {
-        char cb[sizeof(Storage::cfg.cfbConf)];
-        strlcpy(cb, Storage::cfg.cfbConf, sizeof(cb));
-        char *tok = strtok(cb, ",");
-        while (tok) {
-          while (*tok==' ') tok++;
-          if (strlen(tok) > 0 && strstr(sc.conference, tok)) { pass = true; break; }
-          tok = strtok(nullptr, ",");
-        }
-      }
-    } else if (!isCFB && strlen(Storage::cfg.teamFilter) > 0) {
-      pass = false;
-      char awayKey[24], homeKey[24];
-      snprintf(awayKey, sizeof(awayKey), "%s:%s", sc.league, sc.awayTeam);
-      snprintf(homeKey, sizeof(homeKey), "%s:%s", sc.league, sc.homeTeam);
-      char fb[sizeof(Storage::cfg.teamFilter)];
-      strlcpy(fb, Storage::cfg.teamFilter, sizeof(fb));
-      char *tok = strtok(fb, ",");
-      while (tok) {
-        while (*tok==' ') tok++;
-        if (strcasecmp(tok, awayKey)==0 || strcasecmp(tok, homeKey)==0) { pass=true; break; }
-        tok = strtok(nullptr, ",");
-      }
-    }
-    if (!pass) continue;
-
     bool isSched = !strstr(sc.status,"Final") &&
                    (strstr(sc.status,"PM") || strstr(sc.status,"AM"));
     char buf[80];
@@ -158,23 +119,6 @@ static void buildSportsSegment() {
         sc.league, sc.awayTeam, sc.awayScore,
         sc.homeScore, sc.homeTeam, sc.status);
     strlcat(s.text, buf, sizeof(s.text));
-    anyShown = true;
-  }
-  if (!anyShown) strlcpy(s.text, "", sizeof(s.text));
-
-  // Append motorsports/golf to the sports segment
-  if (DataManager::racesReady && DataManager::raceCount > 0) {
-    for (int i = 0; i < DataManager::raceCount; i++) {
-      auto &r = DataManager::races[i];
-      char buf[96];
-      if (r.leader[0])
-        snprintf(buf, sizeof(buf), "%s: %s - %s - Leader: %s %s    ",
-          r.series, r.event, r.status, r.leader, r.detail);
-      else
-        snprintf(buf, sizeof(buf), "%s: %s - %s    ",
-          r.series, r.event, r.status);
-      strlcat(s.text, buf, sizeof(s.text));
-    }
   }
 }
 
@@ -217,12 +161,11 @@ static void buildCryptoSegment() {
 static void buildCalSegment() {
   TickerSegment &s = segments[SEG_CAL];
   s.type    = SEG_CAL;
-  s.enabled = (Storage::cfg.tabMask & 0x08) != 0;
+  s.enabled = (Storage::cfg.tabMask & 0x08) != 0; // bit 3 = calendar tab enabled
   s.text[0] = '\0';
   if (!s.enabled || !DataManager::calReady || DataManager::calCount == 0) return;
   for (int i = 0; i < DataManager::calCount; i++) {
     auto &e = DataManager::calEvents[i];
-    if (e.dayOffset != 0) continue;  // ticker shows today only
     char buf[96];
     if (e.allDay)
       snprintf(buf, sizeof(buf), "Today: %s    ", e.title);
@@ -251,13 +194,9 @@ void rebuildAll() {
 
 void refreshLabel() {
   fullString[0] = '\0';
-  bool first = true;
   for (int i = 0; i < SEG_COUNT; i++) {
-    if (segments[i].enabled && strlen(segments[i].text) > 0) {
-      if (!first) strlcat(fullString, "  -  ", sizeof(fullString));
+    if (segments[i].enabled && strlen(segments[i].text) > 0)
       strlcat(fullString, segments[i].text, sizeof(fullString));
-      first = false;
-    }
   }
   if (strlen(fullString) == 0)
     strlcpy(fullString, "Connecting...    ", sizeof(fullString));
@@ -318,9 +257,8 @@ void begin(lv_obj_t *container) {
   lastClockMin = 0xFFFF;
   dirty = false;
 
-  // Scroll animation — 1px per tick, interval controls speed
-  if (_scrollTimer) { lv_timer_del(_scrollTimer); _scrollTimer = nullptr; }
-  _scrollTimer = lv_timer_create(scrollTimerCb, speedToInterval(scrollState.speed), nullptr);
+  // Scroll animation driven by lv_timer (runs inside lv_timer_handler on Core 1)
+  lv_timer_create(scrollTimerCb, 32, nullptr);
 }
 
 void reattach(lv_obj_t *newContainer) {
@@ -342,12 +280,9 @@ void setSpeed(uint8_t speed) {
   scrollState.speed = speed;
   Storage::cfg.tickerSpeed = speed;
   Storage::save();
-  // Adjust timer interval for new speed — no need to recreate timer
-  if (_scrollTimer) lv_timer_set_period(_scrollTimer, speedToInterval(speed));
 }
 
 void setPaused(bool p) { paused = p; }
-const char* getFullString() { return fullString; }
 const char* getCurrentString() { return fullString; }
 
 } // namespace TickerEngine

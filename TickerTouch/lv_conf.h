@@ -47,7 +47,7 @@
 #define LV_USE_BAR         1
 #define LV_USE_BTN         1
 #define LV_USE_BTNMATRIX   1
-#define LV_USE_CANVAS      1
+#define LV_USE_CANVAS      0
 #define LV_USE_CHECKBOX    1
 #define LV_USE_DROPDOWN    1
 #define LV_USE_IMG         1
@@ -75,7 +75,7 @@
 #define LV_USE_MENU        0
 #define LV_USE_METER       0
 #define LV_USE_MSGBOX      0
-#define LV_USE_QRCODE      1
+#define LV_USE_QRCODE      0
 
 #define LV_USE_THEME_DEFAULT  1
 #define LV_USE_THEME_BASIC    1

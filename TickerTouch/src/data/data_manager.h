@@ -5,19 +5,14 @@
 // ── Shared data structures ────────────────────────────────────────────────────
 
 struct ScoreEntry {
-  char homeTeam[16];    // abbreviation e.g. "NYY"
+  char homeTeam[16];
   char awayTeam[16];
-  char homeName[32];    // full name e.g. "New York Yankees"
-  char awayName[32];
   char homeScore[8];
   char awayScore[8];
-  char status[32];
-  char league[8];
-  uint32_t homeColor;
+  char status[32];       // "Q4 2:34", "Final", "4/16 - 10:00 PM EDT"
+  char league[8];        // "NFL", "NBA"
+  uint32_t homeColor;    // team brand color as 0xRRGGBB
   uint32_t awayColor;
-  char conference[32];
-  uint8_t homeRank;
-  uint8_t awayRank;
 };
 
 struct StockEntry {
@@ -61,14 +56,13 @@ struct WeatherData {
 
 namespace DataManager {
 
-#define MAX_CAL_EVENTS 50   // enough for a week of events
+#define MAX_CAL_EVENTS 20
 
 struct CalendarEvent {
   char title[64];
   char timeStr[16];   // "9:00 AM" or "All Day"
   bool allDay;
   int  startMinute;   // minutes from midnight for sorting (0-1439), 9999=all-day
-  int  dayOffset;     // 0=today, 1=tomorrow, 2=day after, etc.
 };
 
 extern ScoreEntry  scores[MAX_SCORES];
@@ -80,14 +74,13 @@ extern uint8_t     stockCount;
 extern CryptoEntry cryptos[MAX_CRYPTO];
 extern uint8_t     cryptoCount;
 
-extern WeatherData weather;          // primary city alias = weatherCities[0]
-extern WeatherData weatherCities[3]; // up to 3 cities
-extern uint8_t     weatherCityCount;
-extern bool        weatherReady;
+extern WeatherData weather;
+
 extern CalendarEvent calEvents[MAX_CAL_EVENTS];
 extern uint8_t       calCount;
 extern bool          calReady;
 
+extern bool        weatherReady;
 extern bool        scoresReady;
 extern bool        stocksReady;
 extern bool        cryptoReady;
@@ -105,21 +98,3 @@ void forceRefresh();
 const char* buildTickerString();
 
 } // namespace DataManager
-
-// Motorsport + Golf entries — kept outside DataManager namespace like other structs
-#define MAX_RACES 5
-
-struct RaceEntry {
-  char series[8];   // "NASCAR", "F1", "IRL", "PGA"
-  char event[48];   // "Daytona 500", "Monaco GP", "Masters"
-  char status[32];  // "Race Day", "Qualifying", "Round 2", "Final"
-  char leader[32];  // leading driver or golfer name
-  char detail[32];  // "Lap 45/200", "-12 thru 14", "P1"
-};
-
-namespace DataManager {
-  extern RaceEntry  races[MAX_RACES];
-  extern uint8_t    raceCount;
-  extern bool       racesReady;
-  void fetchRacing();
-}

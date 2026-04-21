@@ -19,25 +19,14 @@ struct UserConfig {
   // Crypto: comma-separated CoinGecko IDs
   char crypto[128]  = "bitcoin,ethereum,solana";
 
-  // Primary weather location (kept for backwards compat)
+  // Weather location
   char   city[64]   = "New York";
-  char   state[32]  = {};
-  float  lat        = 0.0f;
+  char   state[32]  = {};       // state/region for geocoding disambiguation
+  float  lat        = 0.0f;     // 0 = not geocoded yet
   float  lon        = 0.0f;
-
-  // Additional weather cities (up to 2 more)
-  struct CitySlot {
-    char  city[64]  = {};
-    char  state[32] = {};
-    float lat       = 0.0f;
-    float lon       = 0.0f;
-  };
-  CitySlot extraCities[2]; // city2 and city3
-  uint8_t  weatherCityCount = 1; // 1-3 active cities
 
   // Ticker speed 1–5 (maps to px/tick)
   uint8_t tickerSpeed = 2;
-  uint8_t brightness  = 200;  // 0-255, default full
 
   // 24-hour clock
   bool clock24h = false;
@@ -47,15 +36,6 @@ struct UserConfig {
 
   // iCal URL for calendar tab (Google/Outlook/Apple secret feed URL)
   char icalUrl[256] = {};
-
-  // Sports filtering — empty = show all teams for that league
-  // teamFilter: comma-separated abbreviations e.g. "NYY,LAD,SEA,NYM"
-  // Applied per-league: if a league's filter is empty, show all its games
-  char teamFilter[192] = {};   // global team abbrev filter across all leagues
-
-  // CFB/CBB conference filter — comma-separated short names e.g. "SEC,Big Ten,ACC"
-  // Also supports "Top 25" as a special token
-  char cfbConf[96] = {};
 
   // Tab visibility bitmask — which tabs to show
   // Bit 0=Sports, 1=Finance, 2=Weather, 3=Calendar

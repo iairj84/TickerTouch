@@ -1,174 +1,207 @@
-# TickerTouch — Setup & Build Guide
+# TickerTouch
+
+A desk dashboard for an ESP32-S3 display board showing live sports scores, stocks, crypto, weather, and calendar events on a 4.3" touchscreen.
+
+---
 
 ## Hardware
 
-- **Board**: JC4827W543 (Guition / Waveshare / compatible)
-- **SoC**: ESP32-S3-WROOM-1-**N4R8**
-  - CPU: dual-core 240MHz
-  - Flash: **4MB** QSPI  ← the "N4" in N4R8
-  - PSRAM: **8MB** OSPI  ← the "R8" in N4R8
-- **Display**: 4.3" IPS, 480×272, driver **NV3041A**, 4-bit QSPI interface
-- **Touch**: GT911 capacitive, I2C (address 0x5D or 0x14)
-- **Backlight**: PWM on GPIO 1
-
-> ⚠️ The display uses **NV3041A via 4-bit QSPI** — NOT an RGB parallel interface.
-> Pin numbers are confirmed from the profi-max reference project.
+| Component | Detail |
+|-----------|--------|
+| Board | JC4827W543 (Guition / Waveshare / compatible) |
+| SoC | ESP32-S3-WROOM-1-N4R8 (4MB Flash, 8MB OPI PSRAM) |
+| Display | 4.3" IPS 480x272, NV3041A driver, 4-bit QSPI |
+| Touch | GT911 capacitive I2C (SDA=8, SCL=4) |
+| Backlight | PWM on GPIO 1 |
 
 ---
 
 ## Arduino IDE Setup
 
-### 1. Install ESP32 Arduino Core
-Add to Preferences → Additional Boards Manager URLs:
-```
-https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
-```
-Install: **esp32 by Espressif Systems** (2.0.14 recommended)
+### Board Settings
 
-### 2. Board Settings
 | Setting | Value |
 |---------|-------|
-| Board | **ESP32S3 Dev Module** (or u-blox NORA-W10) |
-| Upload Speed | 921600 |
+| Board | ESP32S3 Dev Module |
+| Flash Size | 4MB (32Mb) |
+| Partition Scheme | Huge APP (3MB No OTA / 1MB SPIFFS) |
+| PSRAM | OPI PSRAM |
 | CPU Frequency | 240MHz |
-| Flash Size | **4MB (32Mb)** |
-| Partition Scheme | **Huge APP (3MB No OTA/1MB SPIFFS)** |
-| PSRAM | **OPI PSRAM** |
-| Arduino Runs On | Core 1 |
+| USB CDC On Boot | Enabled |
 
-### 3. Install Libraries
+### Required Libraries
 
-| Library | How to Install |
-|---------|---------------|
-| Arduino_GFX_Library ≥ 1.6.1 | Library Manager |
-| LVGL **8.4.0** (exact version) | Library Manager — search "lvgl", pick 8.4.0 |
-| ArduinoJson ≥ 6.21 | Library Manager |
-| TouchLib (mmMicky) | **ZIP install** → https://github.com/mmMicky/TouchLib |
+| Library | Version | Notes |
+|---------|---------|-------|
+| Arduino_GFX_Library | >= 1.6.1 | Library Manager |
+| LVGL | 8.3.x | **Not** 9.x — breaking API changes |
+| ArduinoJson | 6.21.x | **Not** 7.x |
+| bb_captouch | any | Library Manager |
 
-### 4. Configure lv_conf.h
-After installing LVGL:
-1. Copy `lv_conf.h` from this project to your Arduino libraries folder, **next to** (not inside) the `lvgl/` directory:
-```
-Arduino/libraries/
-├── lvgl/           ← library folder
-├── lv_conf.h       ← put it here
-└── Arduino_GFX_Library/
-```
+### lv_conf.h
+
+Copy `lv_conf.h` from this project into your Arduino `libraries/` folder — next to (not inside) the `lvgl/` directory. This file configures LVGL fonts, PSRAM allocation, canvas support, and QR code support.
 
 ---
 
-## Pin Map (NV3041A QSPI)
+## First-Time Setup
 
-| Signal | GPIO |
-|--------|------|
-| LCD CS | 45 |
-| LCD SCK | 47 |
-| LCD D0 | 21 |
-| LCD D1 | 48 |
-| LCD D2 | 40 |
-| LCD D3 | 39 |
-| Backlight PWM | 1 |
-| Touch SDA | 8 |
-| Touch SCL | 9 |
-| Touch RST | 38 |
+1. Flash the firmware via Arduino IDE
+2. The device shows a QR code — scan it to join the **TickerTouch-Setup** WiFi hotspot
+3. The setup page opens automatically (or navigate to `http://192.168.4.1`)
+4. Select your WiFi network, enter your city, choose sports leagues, pick a theme
+5. Tap **Save & Connect** — device reboots and connects to your network
+6. The device IP address is shown in the gear icon settings panel
+
+If the device cannot connect to WiFi at any point it automatically returns to the captive portal.
 
 ---
 
-## First Boot Flow
+## Web Settings
 
-```
-Power on → NVS empty
-  └─ QR code screen: "Connect to TickerTouch-Setup WiFi"
-       └─ User connects to AP → browser opens 192.168.4.1
-            └─ Captive portal: WiFi creds, sports, stocks, crypto, weather, theme
-                 └─ Save → device connects → reboots into dashboard
-```
+Visit the device IP address in a browser while on the same network. The IP is shown in the on-device gear menu.
 
-## Normal Boot Flow
+| Section | Description |
+|---------|-------------|
+| Location & Weather | Up to 3 cities. Each city is geocoded automatically on first save. |
+| Sports Leagues | Enable/disable: NFL, NBA, NHL, MLB, MLS, EPL, CFB, CBB, WNBA, NASCAR, F1, IndyCar, PGA Golf |
+| Sports Filter | Select specific teams — leave all unchecked to show everything. Leagues not yet enabled are shown greyed out but can still be pre-configured. |
+| Stocks | Comma-separated tickers (e.g. SPY, AAPL, TSLA). Requires Finnhub API key. |
+| Finnhub API Key | Free key from finnhub.io — required for stock prices |
+| Crypto | Comma-separated CoinGecko IDs (e.g. bitcoin, ethereum, solana) |
+| Calendar | iCal URL from Google, Outlook, or Apple Calendar |
+| Visible Tabs | Toggle Sports, Finance, Weather, Calendar tabs on/off |
+| Save Settings | Saves all settings. Filter changes trigger an automatic restart. |
+| Restart Device | Reboots the device without saving |
 
-```
-Power on → NVS has config
-  └─ Connect WiFi (STA mode)
-       └─ NTP time sync
-            └─ Dashboard (loading state)
-                 └─ Fetch tasks start (Core 0):
-                      ├─ ESPN scores    — every 60s
-                      ├─ Yahoo Finance  — every 30s
-                      ├─ CoinGecko      — every 20s
-                      └─ Open-Meteo     — every 5min
-```
+### Getting your iCal URL
 
----
+| Provider | Steps |
+|----------|-------|
+| Google | Calendar Settings → pick one specific calendar → Secret address in iCal format |
+| Outlook | Calendar → Share → Get a link → ICS |
+| Apple | iCloud.com → Calendar → Share icon → Public Calendar URL |
 
-## Project Structure
-
-```
-TickerTouch/
-├── TickerTouch.ino              # Entry point, task setup
-├── config.h                     # All pins, constants, API URLs
-├── lv_conf.h                    # LVGL 8.4.0 configuration
-├── src/
-│   ├── display.h / .cpp         # NV3041A + TouchLib + LVGL init
-│   ├── storage.h / .cpp         # NVS preferences
-│   ├── wifi_manager.h / .cpp    # Captive portal + STA
-│   ├── data/
-│   │   └── data_manager.h/.cpp  # ESPN, Yahoo, CoinGecko, Open-Meteo
-│   ├── screens/
-│   │   └── screen_manager.h/.cpp # All LVGL screens
-│   └── themes/
-│       └── themes.h              # 5 color palettes
-└── docs/
-    ├── README.md
-    └── LIBRARIES.txt
-```
+Use a single specific calendar rather than your full merged feed — large feeds (>500KB) take longer to parse.
 
 ---
 
-## Free APIs Used
+## On-Device Settings (Gear Icon)
 
-| Data | Provider | Auth Required |
-|------|----------|---------------|
-| Sports scores | ESPN Public API | None |
-| Weather | Open-Meteo | None |
-| Crypto | CoinGecko (free tier) | None |
-| Stocks | Yahoo Finance (unofficial) | None |
-| Time | NTP pool.ntp.org | None |
+Tap the ⚙ gear icon at the top right of the main screen.
+
+| Control | Description |
+|---------|-------------|
+| http://... | Settings page URL — tap to copy mentally or note it down |
+| Theme | Dark, Retro (amber), Neon (cyan/magenta), Clean (light), Sports (green/gold) |
+| Speed | Ticker scroll speed 1 (slow) to 5 (fast) |
+| Bright | Backlight brightness |
+| Sleep | Screensaver timeout: 5 min, 10 min, 30 min, or Off |
+| Restart Device | Reboots immediately |
+
+Changing the theme triggers an automatic reboot. All other changes apply instantly on Done.
 
 ---
 
-## Themes
+## Tabs
 
-| # | Name | Look |
-|---|------|------|
-| 0 | **Dark** | Deep navy + indigo — default |
-| 1 | **Retro** | Black + amber phosphor |
-| 2 | **Neon** | Deep purple + cyan/magenta |
-| 3 | **Clean** | Light mode + indigo |
-| 4 | **Sports** | Dark green field + gold |
+### Home
+Summary view of all active data. Shows live/final sports scores (filtered to your teams), weather for all cities, stocks, crypto, calendar events for today, and a "See Sports tab" prompt when motorsports/golf are active.
 
-Tap the ⚙ gear icon in the header to switch themes live.
+### Sports
+Full scoreboard grouped by league. Each league shows its games with team color badges, scores, and status (live period/inning, final, or scheduled local time). Motorsports and golf appear below the regular sports with current event name, status, and leader.
+
+### Finance
+Stock price cards (symbol, price, % change) and crypto cards (name, price, 24h change).
+
+### Weather
+One or more city panels depending on how many cities are configured. Each shows current temp, feels like, H/L, humidity, wind, and a 3-day forecast. Scrollable when multiple cities are shown.
+
+### Calendar
+Full week view (today + 6 days). Events grouped under day headers. Today's events use accent color; future days use muted text.
+
+---
+
+## Ticker
+
+Scrolls continuously at the bottom of all screens. Segments in order:
+1. **Clock** — current time, updates every minute
+2. **Weather** — all configured cities: city, temp, condition, H/L
+3. **Sports** — live and final scores plus motorsports/golf events
+4. **Stocks** — symbol, price, % change
+5. **Crypto** — symbol, price, 24h % change
+6. **Calendar** — today's events only
+
+Segments are separated by ` - `. Empty or disabled segments are skipped automatically.
+
+---
+
+## Screensaver
+
+Activates after configurable idle timeout. Shows a large bouncing clock, date, and a scrolling ticker at the bottom. Tap anywhere to wake.
+
+---
+
+## Data Sources
+
+| Feed | API | Key Required |
+|------|-----|-------------|
+| Sports scores | ESPN public scoreboard API | No |
+| Motorsports / Golf | ESPN public scoreboard API | No |
+| Weather | Open-Meteo | No |
+| Geocoding | Open-Meteo + Nominatim fallback | No |
+| Stocks | Finnhub | Yes — free at finnhub.io |
+| Crypto | CoinGecko | No |
+| Calendar | iCal (any provider) | No |
+| Timezone | ip-api.com | No |
+
+---
+
+## Sports Leagues
+
+| League | Bit | Teams/Notes |
+|--------|-----|-------------|
+| NFL | 0 | 32 teams |
+| NBA | 1 | 30 teams |
+| NHL | 2 | 33 teams |
+| MLB | 3 | 30 teams |
+| CFB | 4 | Conference filter (SEC, Big Ten, Top 25, etc.) |
+| MLS | 5 | 29 teams |
+| EPL | 6 | 20 teams |
+| CBB | 7 | Conference filter |
+| WNBA | 8 | 15 teams (2025 roster incl. Portland Fire, Toronto Tempo, Golden State Valkyries) |
+| NASCAR | 9 | Event/status/leader display |
+| F1 | 10 | Event/status/leader display |
+| IndyCar | 11 | Event/status/leader display |
+| PGA Golf | 12 | Event/status/leader display |
+
+Motorsports and golf show "Off season" when no active event is found in the ESPN feed.
 
 ---
 
 ## Troubleshooting
 
-| Symptom | Fix |
-|---------|-----|
-| Blank screen | Confirm `LCD_CS=45, LCD_SCK=47, D0=21, D1=48, D2=40, D3=39` in config.h |
-| `gfx->begin() FAILED` | Wrong QSPI pins or display driver — recheck pin map |
-| Touch not responding | TouchLib auto-detects I2C address; confirm SDA=8, SCL=9, RST=38 |
-| WiFi won't connect | ESP32-S3 is 2.4GHz only — check band |
-| No data on ticker | Open Serial Monitor (115200) — HTTP status codes logged |
-| Heap crash / restart | Reduce `DynamicJsonDocument` sizes in data_manager.cpp |
-| LVGL compile errors | Ensure LVGL 8.4.0 exact — 9.x has breaking API changes |
-| `lv_conf.h` not found | Place it in `Arduino/libraries/lv_conf.h`, not inside `lvgl/` |
+**White screen on boot** — normal for ~2 seconds before LVGL and the splash screen initialize.
+
+**Watchdog crash / sports never loads** — each league fetch takes a few seconds. With many leagues enabled the total fetch time can approach the 60s watchdog limit. Try enabling 4-5 leagues maximum, or disable those currently out of season.
+
+**Calendar shows "Loading..."** — large iCal feeds take up to 30 seconds to stream and parse. Use a single specific Google/Outlook/Apple calendar rather than a merged "all calendars" feed.
+
+**Stocks showing "No Finnhub key"** — add your free Finnhub API key in the web settings page under Finnhub API Key.
+
+**Location not geocoding** — make sure you enter both City and State/Region in the settings, then save. The device geocodes on first save and caches the coordinates.
+
+**WiFi lost after settings change** — device falls back to captive portal automatically if it cannot connect on boot.
+
+**NASCAR/F1/IndyCar/PGA shows "Off season"** — these sports show the current active event only. Between race weekends the ESPN API returns an empty events array, which is shown as "Off season".
 
 ---
 
-## Extending
+## Architecture Notes
 
-**New data feed**: Add fetch function in `data_manager.cpp`, add `WIDGET_*` flag in `config.h`, include in `buildTickerString()`, add tab in `screen_manager.cpp`.
-
-**New theme**: Add `case THEME_X:` in `themes.h`, update roller options in `showSettings()`.
-
-**OTA**: Use `ArduinoOTA` or the ESP-IDF `Update` class — hook into the OTA button in the settings screen.
+- **Core 1**: LVGL task (12KB stack) — all UI rendering, touch, screensaver, ticker scroll
+- **Core 0**: Main task (20KB stack) — all HTTP fetches, data parsing, watchdog resets
+- **Core 0**: Web task (4KB stack, priority 2) — settings web server
+- LVGL heap is allocated from PSRAM via custom allocator in `lv_conf.h`
+- All HTTP response buffers use `MALLOC_CAP_INTERNAL` to avoid PSRAM memcpy crashes
+- `CONFIG_SPIRAM_USE_MALLOC` is explicitly **not** set — this caused String/malloc crashes

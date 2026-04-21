@@ -87,8 +87,6 @@ void setup() {
   Storage::begin();
 
   Display::begin();
-  // Apply saved brightness (Display::begin sets it to 200; override with saved value)
-  Display::setBrightness(Storage::cfg.brightness);
 
   lvglMutex = xSemaphoreCreateMutex();
   lv_init();
@@ -103,15 +101,9 @@ void setup() {
   esp_timer_start_periodic(tmr, LVGL_TICK_MS * 1000);
 
   // LVGL task — 6KB stack is enough for rendering
-  xTaskCreatePinnedToCore(lvglTask, "LVGL", 12288, nullptr, 5, &lvglTaskHandle, 1);
+  xTaskCreatePinnedToCore(lvglTask, "LVGL", 6144, nullptr, 5, &lvglTaskHandle, 1);
 
   Serial.println(F("[Boot] display OK"));
-
-  // Show splash immediately — sets dark background before WiFi connect delay
-  if (xSemaphoreTake(lvglMutex, pdMS_TO_TICKS(500)) == pdTRUE) {
-    ScreenManager::showSplash();
-    xSemaphoreGive(lvglMutex);
-  }
 
   if (!Storage::isConfigured()) {
     if (xSemaphoreTake(lvglMutex, pdMS_TO_TICKS(500)) == pdTRUE) {
