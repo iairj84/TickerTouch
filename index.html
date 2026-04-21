@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>TickerTouch Installer</title>
+    <style>
+        body { font-family: sans-serif; text-align: center; padding: 50px; }
+        button { padding: 15px 25px; font-size: 18px; cursor: pointer; }
+    </style>
+</head>
+<body>
+    <h1>TickerTouch Firmware Installer</h1>
+    <p>Connect your ESP32-S3 via USB and click below to flash the latest version.</p>
+
+    <script type="module" src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"></script>
+    
+    <esp-web-install-button manifest="./manifest.json">
+        <button slot="activate">Connect and Install</button>
+    </esp-web-install-button>
+</body>
+</html>
