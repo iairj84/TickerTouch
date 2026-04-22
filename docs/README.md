@@ -2,6 +2,9 @@
 
 A desk dashboard for an ESP32-S3 display board showing live sports scores, stocks, crypto, weather, and calendar events on a 4.3" touchscreen.
 
+<img width="1024" height="770" alt="image" src="https://github.com/user-attachments/assets/1bd5a074-e73f-412d-9c74-761056413006" />
+
+
 ---
 
 ## Hardware
@@ -46,12 +49,14 @@ Copy `lv_conf.h` from this project into your Arduino `libraries/` folder — nex
 
 ## First-Time Setup
 
-1. Flash the firmware via Arduino IDE
+1. Flash the firmware via Arduino IDE - or use the online flash tool - https://iairj84.github.io/TickerTouch/
 2. The device shows a QR code — scan it to join the **TickerTouch-Setup** WiFi hotspot
-3. The setup page opens automatically (or navigate to `http://192.168.4.1`)
-4. Select your WiFi network, enter your city, choose sports leagues, pick a theme
-5. Tap **Save & Connect** — device reboots and connects to your network
-6. The device IP address is shown in the gear icon settings panel
+3. The setup page opens automatically (or navigate to `http://192.168.4.1`) 
+5. Select your WiFi network, enter your city, choose sports leagues, pick a theme
+6. Tap **Save & Connect** — device reboots and connects to your network
+7. The device IP address is shown in the gear icon settings panel
+8. <img width="726" height="1208" alt="image" src="https://github.com/user-attachments/assets/7c468573-ac82-49a7-afc0-ecaf951eb37c" />
+
 
 If the device cannot connect to WiFi at any point it automatically returns to the captive portal.
 
@@ -60,6 +65,9 @@ If the device cannot connect to WiFi at any point it automatically returns to th
 ## Web Settings
 
 Visit the device IP address in a browser while on the same network. The IP is shown in the on-device gear menu.
+
+<img width="726" height="1208" alt="image" src="https://github.com/user-attachments/assets/0bf57648-1a3f-4969-8f4f-e9de1c15a300" />
+
 
 | Section | Description |
 |---------|-------------|
