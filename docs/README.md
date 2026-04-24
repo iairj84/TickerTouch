@@ -1,6 +1,6 @@
 # TickerTouch
 
-A desk dashboard for an ESP32-S3 display board showing live sports scores, stocks, crypto, weather, and calendar events on a 4.3" touchscreen.
+A desk dashboard for an ESP32-S3 display board showing live sports scores, stocks, crypto, weather, and calendar events on a 4.3" touchscreen. All your data is on your device, nothing is sent out, there's no database and no server logging anything on our side.
 
 <img width="1024" height="770" alt="image" src="https://github.com/user-attachments/assets/1bd5a074-e73f-412d-9c74-761056413006" />
 
