@@ -11,7 +11,7 @@ A desk dashboard for an ESP32-S3 display board showing live sports scores, stock
 
 | Component | Detail |
 |-----------|--------|
-| Board | JC4827W543 (Guition / Waveshare / compatible) |
+| Board | JC4827W543 (Guition / Waveshare / compatible) | https://www.aliexpress.us/item/3256806543063048.html  **CAPACITIVE TOUCH ONLY**
 | SoC | ESP32-S3-WROOM-1-N4R8 (4MB Flash, 8MB OPI PSRAM) |
 | Display | 4.3" IPS 480x272, NV3041A driver, 4-bit QSPI |
 | Touch | GT911 capacitive I2C (SDA=8, SCL=4) |
