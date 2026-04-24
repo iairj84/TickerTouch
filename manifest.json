@@ -5,7 +5,7 @@
     {
       "chipFamily": "ESP32-S3",
       "parts": [
-        { "path": "TickerTouch_v1.bin", "offset": 0 }
+        { "path": "TickerTouch_V1_1.bin", "offset": 0 }
       ]
     }
   ]
