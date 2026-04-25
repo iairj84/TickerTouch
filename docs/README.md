@@ -16,7 +16,7 @@ A desk dashboard for an ESP32-S3 display board showing live sports scores, stock
 | Display | 4.3" IPS 480x272, NV3041A driver, 4-bit QSPI |
 | Touch | GT911 capacitive I2C (SDA=8, SCL=4) |
 | Backlight | PWM on GPIO 1 |
-| 3D Print your case - https://makerworld.com/en/models/2713785-tickertouch-your-desktop-device |
+| 3D Print your case | https://makerworld.com/en/models/2713785-tickertouch-your-desktop-device |
 
 ---
 
