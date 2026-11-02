@@ -1,13 +1,23 @@
 {
   "name": "TickerTouch (hardened test build)",
   "version": "1.3.0",
+  "new_install_prompt_erase": true,
   "builds": [
     {
       "chipFamily": "ESP32-S3",
       "parts": [
-        { "path": "https://raw.githubusercontent.com/iairj84/TickerTouch/fix/esp32-panic-hardening/firmware/TickerTouch_bootloader.bin", "offset": 0 },
-        { "path": "https://raw.githubusercontent.com/iairj84/TickerTouch/fix/esp32-panic-hardening/firmware/TickerTouch_partitions.bin", "offset": 32768 },
-        { "path": "https://raw.githubusercontent.com/iairj84/TickerTouch/fix/esp32-panic-hardening/firmware/TickerTouch_app.bin", "offset": 65536 }
+        {
+          "path": "https://raw.githubusercontent.com/iairj84/TickerTouch/fix/esp32-panic-hardening/firmware/TickerTouch_bootloader.bin",
+          "offset": 0
+        },
+        {
+          "path": "https://raw.githubusercontent.com/iairj84/TickerTouch/fix/esp32-panic-hardening/firmware/TickerTouch_partitions.bin",
+          "offset": 32768
+        },
+        {
+          "path": "https://raw.githubusercontent.com/iairj84/TickerTouch/fix/esp32-panic-hardening/firmware/TickerTouch_app.bin",
+          "offset": 65536
+        }
       ]
     }
   ]
