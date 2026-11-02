@@ -1318,15 +1318,18 @@ void ScreenManager::showDashboard() {
     for (int i = 0; i < DataManager::weatherCityCount; i++)
       weatherHash = weatherHash * 31 + (uint32_t)(DataManager::weatherCities[i].tempF * 10);
 
-    // Stocks: hash first stock price
-    uint32_t stocksHash = 0;
-    if (DataManager::stockCount > 0)
-      stocksHash = (uint32_t)(DataManager::stocks[0].price * 100);
+    // Stocks: hash count + first price + first % change. The count is part of
+    // the hash so removing tickers rebuilds the tab instead of leaving stale cards.
+    uint32_t stocksHash = (uint32_t)DataManager::stockCount << 24;
+    if (DataManager::stockCount > 0) {
+      stocksHash ^= (uint32_t)(DataManager::stocks[0].price * 100);
+      stocksHash ^= (uint32_t)(int)(DataManager::stocks[0].changePercent * 100) << 8;
+    }
 
-    // Crypto: hash first crypto price
-    uint32_t cryptoHash = 0;
+    // Crypto: hash count + first price (same reasoning as stocks)
+    uint32_t cryptoHash = (uint32_t)DataManager::cryptoCount << 24;
     if (DataManager::cryptoCount > 0)
-      cryptoHash = (uint32_t)(DataManager::cryptos[0].priceUSD);
+      cryptoHash ^= (uint32_t)(DataManager::cryptos[0].priceUSD);
 
     // Calendar: hash ready state + count + first event title
     // Adding 0x80000000 when ready ensures ready+0events != not-ready
@@ -1338,7 +1341,7 @@ void ScreenManager::showDashboard() {
     bool sportsDone  = DataManager::scoresReady  && (sportsHash  != lastSportsHash);
     bool weatherDone = DataManager::weatherReady  && (weatherHash != lastWeatherHash);
     bool stocksDone  = DataManager::stocksReady   && (stocksHash  != lastStocksHash);
-    bool cryptoDone  = DataManager::cryptoReady   && (cryptoHash  != lastCryptoHash) && DataManager::cryptoCount > 0;
+    bool cryptoDone  = DataManager::cryptoReady   && (cryptoHash  != lastCryptoHash);
     bool calDone     = DataManager::calReady      && (calHash     != lastCalHash);
 
     // When ready flags go false (forceRefresh), reset hashes to sentinel so the
@@ -1352,7 +1355,7 @@ void ScreenManager::showDashboard() {
     if (DataManager::scoresReady)  lastSportsHash  = sportsHash;
     if (DataManager::weatherReady) lastWeatherHash = weatherHash;
     if (DataManager::stocksReady)  lastStocksHash  = stocksHash;
-    if (DataManager::cryptoReady && DataManager::cryptoCount > 0) lastCryptoHash = cryptoHash;
+    if (DataManager::cryptoReady) lastCryptoHash = cryptoHash;
     if (DataManager::calReady)     lastCalHash     = calHash;
 
     if (weatherDone) {
