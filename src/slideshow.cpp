@@ -94,16 +94,26 @@ bool decode(int idx, uint16_t *dst, int *outW, int *outH) {
     return false;
   }
 
-  JPEGDEC jpg;
+  // JPEGDEC holds roughly 15KB of scratch buffers. As a local it would overflow
+  // the LVGL task stack, so keep one instance on the heap and reuse it.
+  static JPEGDEC *jpg = nullptr;
+  if (!jpg) {
+    jpg = new JPEGDEC();
+    if (!jpg) {
+      Serial.println(F("[Slideshow] decoder allocation failed"));
+      f.close();
+      return false;
+    }
+  }
   _dst = dst; _dstW = IMG_W; _dstH = IMG_H;
 
-  if (!jpg.open(f, drawCb)) {
+  if (!jpg->open(f, drawCb)) {
     Serial.printf("[Slideshow] image %d: decoder rejected the file\n", idx);
     f.close();
     return false;
   }
 
-  const int srcW = jpg.getWidth(), srcH = jpg.getHeight();
+  const int srcW = jpg->getWidth(), srcH = jpg->getHeight();
   // Uploads are already IMG_W x IMG_H; only a hand-placed larger file needs
   // hardware scaling.
   int opts = 0;
@@ -112,10 +122,10 @@ bool decode(int idx, uint16_t *dst, int *outW, int *outH) {
     else if (srcW / 4 <= IMG_W && srcH / 4 <= IMG_H)   opts = JPEG_SCALE_QUARTER;
     else                                               opts = JPEG_SCALE_EIGHTH;
   }
-  jpg.setPixelType(RGB565_LITTLE_ENDIAN);   // matches LV_COLOR_16_SWAP 0
-  const bool ok = jpg.decode(0, 0, opts) != 0;
+  jpg->setPixelType(RGB565_LITTLE_ENDIAN);   // matches LV_COLOR_16_SWAP 0
+  const bool ok = jpg->decode(0, 0, opts) != 0;
   if (!ok) Serial.printf("[Slideshow] image %d: decode failed (%dx%d)\n", idx, srcW, srcH);
-  jpg.close();
+  jpg->close();
   f.close();
 
   if (outW) *outW = srcW / (opts ? opts : 1);

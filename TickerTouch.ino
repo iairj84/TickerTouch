@@ -15,6 +15,7 @@
 #include "src/storage.h"
 #include "src/ticker_engine.h"
 #include "src/screensaver.h"
+#include "src/slideshow.h"
 #include "src/data/data_manager.h"
 #include "src/screens/screen_manager.h"
 
@@ -176,6 +177,9 @@ void setup() {
   if (xSemaphoreTake(lvglMutex, pdMS_TO_TICKS(1000)) == pdTRUE) {
     ScreenManager::showDashboard();
     Screensaver::begin(lv_scr_act(), Display::setBrightness);
+  // Mount the photo partition up front: the screensaver checks count() on every
+  // idle timeout, and an unmounted filesystem silently reports zero images.
+  Slideshow::begin();
     xSemaphoreGive(lvglMutex);
   }
 

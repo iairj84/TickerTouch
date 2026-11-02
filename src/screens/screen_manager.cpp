@@ -1093,8 +1093,8 @@ void ScreenManager::showSettings() {
   lv_obj_set_pos(ssLbl, 0, y + 8);
 
   lv_obj_t *ssRoller = lv_roller_create(panel);
-  lv_roller_set_options(ssRoller, "5 min\n10 min\n30 min\nOff", LV_ROLLER_MODE_NORMAL);
-  lv_roller_set_selected(ssRoller, 1, LV_ANIM_OFF);
+  lv_roller_set_options(ssRoller, "1 min\n5 min\n10 min\n30 min\nOff", LV_ROLLER_MODE_NORMAL);
+  lv_roller_set_selected(ssRoller, 2, LV_ANIM_OFF);
   lv_obj_set_style_bg_color(ssRoller, pal.bg, 0);
   lv_obj_set_style_text_color(ssRoller, pal.text, 0);
   lv_obj_set_style_bg_color(ssRoller, pal.accent, LV_PART_SELECTED);
@@ -1102,7 +1102,7 @@ void ScreenManager::showSettings() {
   lv_obj_set_pos(ssRoller, 70, y);
   lv_obj_set_size(ssRoller, 100, 56);
   lv_obj_add_event_cb(ssRoller, [](lv_event_t *e){
-    static const uint32_t timeouts[] = {300, 600, 1800, 0};
+    static const uint32_t timeouts[] = {60, 300, 600, 1800, 0};
     Screensaver::setIdleTimeout(timeouts[lv_roller_get_selected(lv_event_get_target(e))]);
   }, LV_EVENT_VALUE_CHANGED, nullptr);
   y += 64;
