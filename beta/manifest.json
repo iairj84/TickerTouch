@@ -1,21 +1,21 @@
 {
   "name": "TickerTouch (hardened test build)",
-  "version": "1.3.3",
+  "version": "1.3.4",
   "new_install_prompt_erase": true,
   "builds": [
     {
       "chipFamily": "ESP32-S3",
       "parts": [
         {
-          "path": "/firmware/TickerTouch_1_3_3_bootloader.bin",
+          "path": "/firmware/TickerTouch_1_3_4_bootloader.bin",
           "offset": 0
         },
         {
-          "path": "/firmware/TickerTouch_1_3_3_partitions.bin",
+          "path": "/firmware/TickerTouch_1_3_4_partitions.bin",
           "offset": 32768
         },
         {
-          "path": "/firmware/TickerTouch_1_3_3_app.bin",
+          "path": "/firmware/TickerTouch_1_3_4_app.bin",
           "offset": 65536
         }
       ]

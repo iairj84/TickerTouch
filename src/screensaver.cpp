@@ -114,6 +114,8 @@ static bool loadImage(int idx) {
   return true;
 }
 
+static bool loadNextValid();   // defined below showImages()
+
 static void imgTimerCb(lv_timer_t *) {
   if (!_imgObj) return;
   const uint32_t now = millis();
@@ -135,8 +137,14 @@ static void imgTimerCb(lv_timer_t *) {
       break;
     }
     case 2: {   // decode the next frame while the screen is clear
-      const int next = (_imgCount > 0) ? (_imgIdx + 1) % _imgCount : 0;
-      loadImage(next);
+      if (!loadNextValid()) {          // nothing decodable left: end on this frame
+        lv_obj_set_pos(_imgObj, 0, 0);
+        _panY = 0;
+        _phase = 0;
+        _panStart = _imgShown = now;
+        break;
+      }
+      _imgCount = Slideshow::count();
       lv_obj_set_pos(_imgObj, TFT_WIDTH + 40, 0);
       _panY = 0;
       _phase = 3;
@@ -151,6 +159,32 @@ static void imgTimerCb(lv_timer_t *) {
       break;
     }
   }
+}
+
+// A reboot during an upload can leave a truncated JPEG in the partition. Treat
+// such a file as debris: drop it and move on rather than refusing to show any
+// photos at all.
+static bool loadFirstValid() {
+  int guard = Slideshow::count() + 1;
+  while (Slideshow::count() > 0 && guard-- > 0) {
+    if (loadImage(0)) return true;
+    Serial.println(F("[Saver] image 1 undecodable - removing it"));
+    if (!Slideshow::removeAt(0)) return false;
+  }
+  return false;
+}
+
+static bool loadNextValid() {
+  int guard = Slideshow::count() + 1;
+  while (guard-- > 0) {
+    const int n = Slideshow::count();
+    if (n <= 0) return false;
+    const int next = (_imgIdx + 1) % n;
+    if (loadImage(next)) return true;
+    Serial.printf("[Saver] image %d undecodable - removing it\n", next + 1);
+    if (!Slideshow::removeAt(next)) return false;
+  }
+  return false;
 }
 
 static void showImages() {
@@ -170,12 +204,13 @@ static void showImages() {
   _imgObj = lv_img_create(_imgCont);
   lv_obj_set_pos(_imgObj, 0, 0);
 
-  if (!loadImage(0)) {
+  if (!loadFirstValid()) {
     lv_obj_del(_imgCont);
     _imgCont = nullptr;
     _imgObj  = nullptr;
     return;
   }
+  _imgCount = Slideshow::count();
   _phase    = 0;
   _panStart = millis();
   _imgShown = millis();
