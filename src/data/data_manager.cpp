@@ -1217,8 +1217,8 @@ void begin() {
   fetchTimezone();
   esp_task_wdt_reset();   // tz lookup + up to 10s of NTP waiting
   if (Storage::cfg.lat==0.0f&&Storage::cfg.lon==0.0f) geocodeCity();
-  esp_task_wdt_reset();   // geocode tries two endpoints back to back
   else Serial.printf("[Geo] saved: %s %.4f, %.4f\n",Storage::cfg.city,Storage::cfg.lat,Storage::cfg.lon);
+  esp_task_wdt_reset();   // geocode tries two endpoints back to back
   uint32_t now=millis();
   lastSports   = now - REFRESH_SPORTS_MS  + 3000;   // sports fires 3s after boot
   lastStocks   = now - REFRESH_STOCKS_MS  + 10000;  // stocks fires 10s after boot
