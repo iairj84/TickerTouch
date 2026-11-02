@@ -7,15 +7,15 @@
       "chipFamily": "ESP32-S3",
       "parts": [
         {
-          "path": "/firmware/TickerTouch_1_3_5_bootloader.bin",
+          "path": "../firmware/TickerTouch_1_3_5_bootloader.bin",
           "offset": 0
         },
         {
-          "path": "/firmware/TickerTouch_1_3_5_partitions.bin",
+          "path": "../firmware/TickerTouch_1_3_5_partitions.bin",
           "offset": 32768
         },
         {
-          "path": "/firmware/TickerTouch_1_3_5_app.bin",
+          "path": "../firmware/TickerTouch_1_3_5_app.bin",
           "offset": 65536
         }
       ]
