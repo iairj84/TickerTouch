@@ -24,8 +24,14 @@ void load() {
   prefs.getString(NVS_KEY_STOCKS, cfg.stocks, sizeof(cfg.stocks));
   if (strlen(cfg.stocks) == 0) strlcpy(cfg.stocks, "SPY,AAPL,TSLA,NVDA", sizeof(cfg.stocks));
 
+  // Crypto: an empty list is a valid choice ("no crypto"), not a missing value.
+  // getString() leaves the buffer untouched when the stored value is empty, and the
+  // old fallback re-seeded the defaults on every boot, so clearing crypto silently
+  // undid itself at the next restart. Only a never-configured device gets defaults.
+  cfg.crypto[0] = '\0';
   prefs.getString(NVS_KEY_CRYPTO, cfg.crypto, sizeof(cfg.crypto));
-  if (strlen(cfg.crypto) == 0) strlcpy(cfg.crypto, "bitcoin,ethereum,solana", sizeof(cfg.crypto));
+  if (strlen(cfg.crypto) == 0 && !cfg.configured)
+    strlcpy(cfg.crypto, "bitcoin,ethereum,solana", sizeof(cfg.crypto));
 
   prefs.getString("finnhub", cfg.finnhubKey, sizeof(cfg.finnhubKey));
   prefs.getString(NVS_KEY_CITY, cfg.city, sizeof(cfg.city));
