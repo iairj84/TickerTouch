@@ -42,6 +42,9 @@ struct UserConfig {
   // 24-hour clock
   bool clock24h = false;
 
+  // Screensaver idle timeout in seconds (0 = never sleep)
+  uint32_t saverSec = 600;
+
   // Local UTC offset in seconds (set from ip-api on boot, used to convert game times)
   int32_t tzOffsetSec = 0;
 

@@ -20,6 +20,7 @@ void load() {
   cfg.tickerSpeed  = prefs.getUChar("tspeed", 2);
   cfg.brightness   = prefs.getUChar("brightness", 200);
   cfg.clock24h     = prefs.getBool("clock24h", false);
+  cfg.saverSec     = prefs.getUInt("saverSec", 600);
 
   prefs.getString(NVS_KEY_STOCKS, cfg.stocks, sizeof(cfg.stocks));
   if (strlen(cfg.stocks) == 0) strlcpy(cfg.stocks, "SPY,AAPL,TSLA,NVDA", sizeof(cfg.stocks));
@@ -65,6 +66,7 @@ void save() {
   prefs.putUChar("tspeed", cfg.tickerSpeed);
   prefs.putUChar("brightness", cfg.brightness);
   prefs.putBool("clock24h", cfg.clock24h);
+  prefs.putUInt("saverSec", cfg.saverSec);
   prefs.putString(NVS_KEY_STOCKS, cfg.stocks);
   prefs.putString(NVS_KEY_CRYPTO, cfg.crypto);
   prefs.putString(NVS_KEY_CITY, cfg.city);

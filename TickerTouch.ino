@@ -180,6 +180,7 @@ void setup() {
   // Mount the photo partition up front: the screensaver checks count() on every
   // idle timeout, and an unmounted filesystem silently reports zero images.
   Slideshow::begin();
+  Screensaver::setIdleTimeout(Storage::cfg.saverSec);   // honour the saved Sleep choice
     xSemaphoreGive(lvglMutex);
   }
 
