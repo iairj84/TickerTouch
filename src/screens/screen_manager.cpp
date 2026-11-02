@@ -98,6 +98,10 @@ static lv_obj_t* makeCard(lv_obj_t *parent, int32_t w, int32_t h) {
 static void clockTimerCb(lv_timer_t *timer) {
   if (!clockLabel) return;
   time_t now = time(nullptr);
+  // SNTP delivers asynchronously — until it does, time(nullptr) is a few seconds
+  // past the epoch and localtime() renders 1970-01-01 00:00, which looks like a
+  // badly wrong clock. Same guard the ticker and screensaver already use.
+  if (now < 100000) { lv_label_set_text(clockLabel, "--:--"); return; }
   struct tm *t = localtime(&now);
   char buf[16];
   if (Storage::cfg.clock24h)
@@ -943,7 +947,10 @@ static void closeSettings(lv_event_t *e) {
   lv_obj_t *overlay = (lv_obj_t*)lv_event_get_user_data(e);
   TickerEngine::setPaused(false);
   bool themeChanged = (Storage::cfg.theme != sSettingsOrigTheme);
-  lv_obj_del(overlay);
+  // This runs inside the Done button's CLICKED callback. lv_obj_del() frees the
+  // overlay (the button's parent) immediately, and LVGL keeps using the freed
+  // button after the callback returns -> use-after-free. Defer it instead.
+  lv_obj_del_async(overlay);
   Storage::save();
   if (themeChanged) {
     lv_timer_create([](lv_timer_t *t){ lv_timer_del(t); ESP.restart(); }, 200, nullptr);

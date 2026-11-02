@@ -118,7 +118,10 @@ static void showOverlay() {
 static void hideOverlay() {
   if (!_overlay) return;
   if (_scrollTimer) { lv_timer_del(_scrollTimer); _scrollTimer = nullptr; }
-  lv_obj_del(_overlay);
+  // hideOverlay() runs from the indev read callback (wake-on-touch). Deleting the
+  // object LVGL is still holding as the active touch target frees memory LVGL goes
+  // on to dereference -> LoadProhibited. Defer the free to the next lv_timer_handler.
+  lv_obj_del_async(_overlay);
   _overlay = _floatClock = _floatDate = _tickerCont = _tickerLbl = nullptr;
   if (_setBrightness) _setBrightness(200);
 }

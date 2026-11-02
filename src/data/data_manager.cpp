@@ -55,6 +55,7 @@ static int httpGET_buf(const char *url, char *buf, int bufSize, int ms=10000) {
   http.setReuse(false);
   http.useHTTP10(true);  // disables chunked transfer — body is clean bytes
   http.addHeader("User-Agent", "TickerTouch/1.0");
+  esp_task_wdt_reset();   // GET() can block for the full timeout
   int code = http.GET();
   int len = 0;
   if (code == 200) {
@@ -63,6 +64,9 @@ static int httpGET_buf(const char *url, char *buf, int bufSize, int ms=10000) {
     WiFiClient *stream = http.getStreamPtr();
     uint32_t deadline = millis() + ms;
     while (len < bufSize - 1 && millis() < deadline) {
+      // Slow servers can dribble bytes for the whole timeout budget. Without
+      // this the subscribed main task trips the 60s TWDT and panics.
+      esp_task_wdt_reset();
       int got = 0;
       while (len < bufSize - 1 && got < 128) {
         int c = stream->read();
@@ -354,7 +358,9 @@ void fetchSports() {
 
     HTTPClient http;
     WiFiClient client;
-    if (!http.begin(client, url)) { heap_caps_free(buf); continue; }
+    // NOTE: do NOT free buf here — it is reused by the next league and freed once
+    // after the loop. Freeing it here was a use-after-free + double-free.
+    if (!http.begin(client, url)) { Serial.printf("[Sports] begin failed %s\n", lg.abbr); continue; }
     http.setTimeout(8000);  // reduced from 10000
     http.addHeader("User-Agent", "TickerTouch/1.0");
     int code = http.GET();
@@ -1209,7 +1215,9 @@ void forceRefresh() {
 void begin() {
   Serial.println(F("[Data] begin"));
   fetchTimezone();
+  esp_task_wdt_reset();   // tz lookup + up to 10s of NTP waiting
   if (Storage::cfg.lat==0.0f&&Storage::cfg.lon==0.0f) geocodeCity();
+  esp_task_wdt_reset();   // geocode tries two endpoints back to back
   else Serial.printf("[Geo] saved: %s %.4f, %.4f\n",Storage::cfg.city,Storage::cfg.lat,Storage::cfg.lon);
   uint32_t now=millis();
   lastSports   = now - REFRESH_SPORTS_MS  + 3000;   // sports fires 3s after boot

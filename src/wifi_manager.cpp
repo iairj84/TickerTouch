@@ -663,6 +663,15 @@ void startSettingsServer() {
 void handleSettingsServer() { server.handleClient(); }
 
 bool isConnected()  { return WiFi.status() == WL_CONNECTED; }
-const char* getIP() { static String ip; ip = WiFi.localIP().toString(); return ip.c_str(); }
+const char* getIP() {
+  // Static char buffer, not a shared static String: the web task and the LVGL
+  // task both call this, and reassigning a String frees the buffer the other
+  // task may still be printing from.
+  static char ip[20];
+  IPAddress a = WiFi.localIP();
+  snprintf(ip, sizeof(ip), "%u.%u.%u.%u",
+           (unsigned)a[0], (unsigned)a[1], (unsigned)a[2], (unsigned)a[3]);
+  return ip;
+}
 
 } // namespace WiFiManager
