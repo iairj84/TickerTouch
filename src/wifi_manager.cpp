@@ -673,7 +673,7 @@ static String imagesPage() {
        "(decline the erase prompt when flashing). About ";
   h += String((unsigned)(Slideshow::freeBytes() / 1024));
   h += " KB is free for roughly ";
-  h += String((unsigned)(Slideshow::freeBytes() / 30000));
+  h += String((unsigned)(Slideshow::freeBytes() / 48000));
   h += " more photo(s) at the usual size.</div>";
 
   h += "<script>"
@@ -687,7 +687,7 @@ static String imagesPage() {
        "var s=Math.max(W/bmp.width,H/bmp.height);"
        "var dw=bmp.width*s,dh=bmp.height*s;"
        "x.drawImage(bmp,(W-dw)/2,(H-dh)/2,dw,dh);"
-       "return new Promise(function(r){c.toBlob(r,'image/jpeg',0.82);});});}"
+       "return new Promise(function(r){c.toBlob(r,'image/jpeg',0.92);});});}"
        "btn.onclick=function(){var files=Array.prototype.slice.call(input.files);btn.disabled=true;"
        "var i=0;(function next(){"
        "if(i>=files.length){log('Done - reloading...');setTimeout(function(){location.reload();},600);return;}"
