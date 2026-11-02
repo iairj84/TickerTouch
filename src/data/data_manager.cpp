@@ -1232,8 +1232,18 @@ void begin() {
 void tick() {
   uint32_t n = millis();
   if ((n-lastWeather) >=REFRESH_WEATHER_MS)  { lastWeather =millis(); fetchWeather();  return; }
-  if ((n-lastCalendar)>=REFRESH_CALENDAR_MS) { lastCalendar=millis(); fetchCalendar(); return; }
-  if ((n-lastSports)  >=REFRESH_SPORTS_MS)   { lastSports  =millis(); fetchSports();   return; }
+  if ((n-lastCalendar)>=REFRESH_CALENDAR_MS) {
+    if (time(nullptr) < 100000) { lastCalendar = n - REFRESH_CALENDAR_MS + 5000; return; }
+    lastCalendar=millis(); fetchCalendar(); return;
+  }
+  // ESPN is asked for "today", and "today" comes from localtime(). Before SNTP
+  // lands that is 1970-01-01, so the scoreboard comes back empty and the Sports
+  // tab sits on "No games today" even though the leagues and filters are fine.
+  // Hang back and retry every 5s until the clock is real.
+  if ((n-lastSports)  >=REFRESH_SPORTS_MS) {
+    if (time(nullptr) < 100000) { lastSports = n - REFRESH_SPORTS_MS + 5000; return; }
+    lastSports = millis(); fetchSports(); return;
+  }
   if ((n-lastStocks)  >=REFRESH_STOCKS_MS)   { lastStocks  =millis(); fetchStocks();   return; }
   if ((n-lastCrypto)  >=REFRESH_CRYPTO_MS)   { lastCrypto  =millis(); fetchCrypto();   return; }
   if ((n-lastRacing)  >=REFRESH_RACING_MS)   { lastRacing  =millis(); fetchRacing();   return; }
