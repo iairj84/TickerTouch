@@ -55,6 +55,7 @@ static int httpGET_buf(const char *url, char *buf, int bufSize, int ms=10000) {
   http.setReuse(false);
   http.useHTTP10(true);  // disables chunked transfer — body is clean bytes
   http.addHeader("User-Agent", "TickerTouch/1.0");
+  esp_task_wdt_reset();   // GET() can block for the full timeout
   int code = http.GET();
   int len = 0;
   if (code == 200) {
@@ -63,6 +64,9 @@ static int httpGET_buf(const char *url, char *buf, int bufSize, int ms=10000) {
     WiFiClient *stream = http.getStreamPtr();
     uint32_t deadline = millis() + ms;
     while (len < bufSize - 1 && millis() < deadline) {
+      // Slow servers can dribble bytes for the whole timeout budget. Without
+      // this the subscribed main task trips the 60s TWDT and panics.
+      esp_task_wdt_reset();
       int got = 0;
       while (len < bufSize - 1 && got < 128) {
         int c = stream->read();
@@ -354,7 +358,9 @@ void fetchSports() {
 
     HTTPClient http;
     WiFiClient client;
-    if (!http.begin(client, url)) { heap_caps_free(buf); continue; }
+    // NOTE: do NOT free buf here — it is reused by the next league and freed once
+    // after the loop. Freeing it here was a use-after-free + double-free.
+    if (!http.begin(client, url)) { Serial.printf("[Sports] begin failed %s\n", lg.abbr); continue; }
     http.setTimeout(8000);  // reduced from 10000
     http.addHeader("User-Agent", "TickerTouch/1.0");
     int code = http.GET();
@@ -613,19 +619,24 @@ void fetchSports() {
 
 // ── Stocks via Yahoo Finance (no API key required) ────────────────────────────
 void fetchStocks() {
-  stockCount = 0;
-  stocksReady = false;
-  if (!strlen(Storage::cfg.stocks)) { stocksReady = true; return; }
+  if (!strlen(Storage::cfg.stocks)) { stockCount = 0; stocksReady = true; return; }
 
-  // Yahoo Finance v8 chart API — free, no key, returns current price + prev close
-  // Response: {"chart":{"result":[{"meta":{"regularMarketPrice":X,"chartPreviousClose":Y,...}}]}}
-  char stockBuf[512];
+  // Yahoo Finance v8 chart API — free, no key, returns current price + day change.
+  // NOTE: the "meta" block is ~630 bytes, so the buffer must be bigger than that
+  // or "chartPreviousClose" gets truncated (that's what zeroed every % change).
+  // Response: {"chart":{"result":[{"meta":{"regularMarketPrice":X,"regularMarketChangePercent":Y,...}}]}}
+  char stockBuf[1024];
+
+  // Stage into a temp array and swap at the end: clearing stockCount/stocksReady
+  // mid-fetch blanked the cards and made them pop back in a few seconds later.
+  StockEntry staging[MAX_STOCKS];
+  uint8_t stagingCount = 0;
 
   char syms[sizeof(Storage::cfg.stocks)];
   strlcpy(syms, Storage::cfg.stocks, sizeof(syms));
 
   char *start = syms;
-  while (*start && stockCount < MAX_STOCKS) {
+  while (*start && stagingCount < MAX_STOCKS) {
     esp_task_wdt_reset();
     char *comma = strchr(start, ',');
     if (comma) *comma = '\0';
@@ -643,24 +654,40 @@ void fetchStocks() {
         "?interval=1d&range=1d&includePrePost=false", sym);
       int len = httpGET_buf(url, stockBuf, sizeof(stockBuf), 8000);
       if (len > 0) {
-        // Parse price from "regularMarketPrice":X
-        float price = 0.0f, prev = 0.0f;
+        float price = 0.0f;
         char *pp = strstr(stockBuf, "\"regularMarketPrice\":");
-        if (pp) price = atof(pp + 21);
-        char *pc = strstr(stockBuf, "\"chartPreviousClose\":");
-        if (!pc) pc = strstr(stockBuf, "\"regularMarketPreviousClose\":");
-        if (pc) {
-          const char *vp = strchr(pc, ':');
-          if (vp) prev = atof(vp + 1);
+        if (pp) {
+          const char *v = strchr(pp, ':');
+          if (v) price = atof(v + 1);
         }
-        float dp = (prev > 0.01f && price > 0.01f) ? ((price - prev) / prev * 100.0f) : 0.0f;
+
+        // Day change: prefer Yahoo's own percent (right next to the price),
+        // otherwise compute it from the previous close.
+        float dp = 0.0f;
+        char *pc = strstr(stockBuf, "\"regularMarketChangePercent\":");
+        if (pc) {
+          const char *v = strchr(pc, ':');
+          if (v) dp = atof(v + 1);
+        } else {
+          float prev = 0.0f;
+          char *pv = strstr(stockBuf, "\"chartPreviousClose\":");
+          if (!pv) pv = strstr(stockBuf, "\"previousClose\":");
+          if (!pv) pv = strstr(stockBuf, "\"regularMarketPreviousClose\":");
+          if (pv) {
+            const char *v = strchr(pv, ':');
+            if (v) prev = atof(v + 1);
+          }
+          if (prev > 0.01f && price > 0.01f) dp = (price - prev) / prev * 100.0f;
+        }
+
         if (price > 0.01f) {
-          strlcpy(stocks[stockCount].symbol, sym, sizeof(stocks[stockCount].symbol));
-          stocks[stockCount].price = price;
-          stocks[stockCount].changePercent = dp;
-          stocks[stockCount].marketClosed = false;
+          StockEntry &e = staging[stagingCount];
+          strlcpy(e.symbol, sym, sizeof(e.symbol));
+          e.price = price;
+          e.changePercent = dp;
+          e.marketClosed = false;
           Serial.printf("[Stocks] %s $%.2f %+.2f%%\n", sym, price, dp);
-          stockCount++;
+          stagingCount++;
         } else {
           Serial.printf("[Stocks] %s: no price (len=%d)\n", sym, len);
         }
@@ -671,13 +698,22 @@ void fetchStocks() {
 
     if (comma) { *comma = ','; start = comma + 1; } else break;
   }
+  // Commit only on success — a failed fetch keeps the previous prices on screen
+  if (stagingCount > 0) {
+    memcpy(stocks, staging, stagingCount * sizeof(StockEntry));
+    stockCount = stagingCount;
+  } else if (stockCount > 0) {
+    Serial.println(F("[Stocks] no fresh data - keeping previous"));
+  }
   stocksReady = true;
   Serial.printf("[Stocks] done: %d\n", stockCount);
 }
 
 // ── Crypto via CoinGecko (free, no key) ────────────────────────────────────
 void fetchCrypto() {
-  if (!strlen(Storage::cfg.crypto)) { cryptoReady = true; return; }
+  // Cleared in settings -> drop the cached entries, otherwise the old coins
+  // keep rendering forever because the early return left cryptoCount alone.
+  if (!strlen(Storage::cfg.crypto)) { cryptoCount = 0; cryptoReady = true; return; }
   if (!WiFiManager::isConnected())  { cryptoReady = true; return; }
 
   char url[256];
@@ -1209,8 +1245,10 @@ void forceRefresh() {
 void begin() {
   Serial.println(F("[Data] begin"));
   fetchTimezone();
+  esp_task_wdt_reset();   // tz lookup + up to 10s of NTP waiting
   if (Storage::cfg.lat==0.0f&&Storage::cfg.lon==0.0f) geocodeCity();
   else Serial.printf("[Geo] saved: %s %.4f, %.4f\n",Storage::cfg.city,Storage::cfg.lat,Storage::cfg.lon);
+  esp_task_wdt_reset();   // geocode tries two endpoints back to back
   uint32_t now=millis();
   lastSports   = now - REFRESH_SPORTS_MS  + 3000;   // sports fires 3s after boot
   lastStocks   = now - REFRESH_STOCKS_MS  + 10000;  // stocks fires 10s after boot
@@ -1224,8 +1262,18 @@ void begin() {
 void tick() {
   uint32_t n = millis();
   if ((n-lastWeather) >=REFRESH_WEATHER_MS)  { lastWeather =millis(); fetchWeather();  return; }
-  if ((n-lastCalendar)>=REFRESH_CALENDAR_MS) { lastCalendar=millis(); fetchCalendar(); return; }
-  if ((n-lastSports)  >=REFRESH_SPORTS_MS)   { lastSports  =millis(); fetchSports();   return; }
+  if ((n-lastCalendar)>=REFRESH_CALENDAR_MS) {
+    if (time(nullptr) < 100000) { lastCalendar = n - REFRESH_CALENDAR_MS + 5000; return; }
+    lastCalendar=millis(); fetchCalendar(); return;
+  }
+  // ESPN is asked for "today", and "today" comes from localtime(). Before SNTP
+  // lands that is 1970-01-01, so the scoreboard comes back empty and the Sports
+  // tab sits on "No games today" even though the leagues and filters are fine.
+  // Hang back and retry every 5s until the clock is real.
+  if ((n-lastSports)  >=REFRESH_SPORTS_MS) {
+    if (time(nullptr) < 100000) { lastSports = n - REFRESH_SPORTS_MS + 5000; return; }
+    lastSports = millis(); fetchSports(); return;
+  }
   if ((n-lastStocks)  >=REFRESH_STOCKS_MS)   { lastStocks  =millis(); fetchStocks();   return; }
   if ((n-lastCrypto)  >=REFRESH_CRYPTO_MS)   { lastCrypto  =millis(); fetchCrypto();   return; }
   if ((n-lastRacing)  >=REFRESH_RACING_MS)   { lastRacing  =millis(); fetchRacing();   return; }

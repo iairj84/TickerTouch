@@ -98,6 +98,10 @@ static lv_obj_t* makeCard(lv_obj_t *parent, int32_t w, int32_t h) {
 static void clockTimerCb(lv_timer_t *timer) {
   if (!clockLabel) return;
   time_t now = time(nullptr);
+  // SNTP delivers asynchronously — until it does, time(nullptr) is a few seconds
+  // past the epoch and localtime() renders 1970-01-01 00:00, which looks like a
+  // badly wrong clock. Same guard the ticker and screensaver already use.
+  if (now < 100000) { lv_label_set_text(clockLabel, "--:--"); return; }
   struct tm *t = localtime(&now);
   char buf[16];
   if (Storage::cfg.clock24h)
@@ -943,7 +947,10 @@ static void closeSettings(lv_event_t *e) {
   lv_obj_t *overlay = (lv_obj_t*)lv_event_get_user_data(e);
   TickerEngine::setPaused(false);
   bool themeChanged = (Storage::cfg.theme != sSettingsOrigTheme);
-  lv_obj_del(overlay);
+  // This runs inside the Done button's CLICKED callback. lv_obj_del() frees the
+  // overlay (the button's parent) immediately, and LVGL keeps using the freed
+  // button after the callback returns -> use-after-free. Defer it instead.
+  lv_obj_del_async(overlay);
   Storage::save();
   if (themeChanged) {
     lv_timer_create([](lv_timer_t *t){ lv_timer_del(t); ESP.restart(); }, 200, nullptr);
@@ -1311,15 +1318,18 @@ void ScreenManager::showDashboard() {
     for (int i = 0; i < DataManager::weatherCityCount; i++)
       weatherHash = weatherHash * 31 + (uint32_t)(DataManager::weatherCities[i].tempF * 10);
 
-    // Stocks: hash first stock price
-    uint32_t stocksHash = 0;
-    if (DataManager::stockCount > 0)
-      stocksHash = (uint32_t)(DataManager::stocks[0].price * 100);
+    // Stocks: hash count + first price + first % change. The count is part of
+    // the hash so removing tickers rebuilds the tab instead of leaving stale cards.
+    uint32_t stocksHash = (uint32_t)DataManager::stockCount << 24;
+    if (DataManager::stockCount > 0) {
+      stocksHash ^= (uint32_t)(DataManager::stocks[0].price * 100);
+      stocksHash ^= (uint32_t)(int)(DataManager::stocks[0].changePercent * 100) << 8;
+    }
 
-    // Crypto: hash first crypto price
-    uint32_t cryptoHash = 0;
+    // Crypto: hash count + first price (same reasoning as stocks)
+    uint32_t cryptoHash = (uint32_t)DataManager::cryptoCount << 24;
     if (DataManager::cryptoCount > 0)
-      cryptoHash = (uint32_t)(DataManager::cryptos[0].priceUSD);
+      cryptoHash ^= (uint32_t)(DataManager::cryptos[0].priceUSD);
 
     // Calendar: hash ready state + count + first event title
     // Adding 0x80000000 when ready ensures ready+0events != not-ready
@@ -1331,7 +1341,7 @@ void ScreenManager::showDashboard() {
     bool sportsDone  = DataManager::scoresReady  && (sportsHash  != lastSportsHash);
     bool weatherDone = DataManager::weatherReady  && (weatherHash != lastWeatherHash);
     bool stocksDone  = DataManager::stocksReady   && (stocksHash  != lastStocksHash);
-    bool cryptoDone  = DataManager::cryptoReady   && (cryptoHash  != lastCryptoHash) && DataManager::cryptoCount > 0;
+    bool cryptoDone  = DataManager::cryptoReady   && (cryptoHash  != lastCryptoHash);
     bool calDone     = DataManager::calReady      && (calHash     != lastCalHash);
 
     // When ready flags go false (forceRefresh), reset hashes to sentinel so the
@@ -1345,7 +1355,7 @@ void ScreenManager::showDashboard() {
     if (DataManager::scoresReady)  lastSportsHash  = sportsHash;
     if (DataManager::weatherReady) lastWeatherHash = weatherHash;
     if (DataManager::stocksReady)  lastStocksHash  = stocksHash;
-    if (DataManager::cryptoReady && DataManager::cryptoCount > 0) lastCryptoHash = cryptoHash;
+    if (DataManager::cryptoReady) lastCryptoHash = cryptoHash;
     if (DataManager::calReady)     lastCalHash     = calHash;
 
     if (weatherDone) {
