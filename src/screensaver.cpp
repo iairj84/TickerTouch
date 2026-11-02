@@ -80,20 +80,16 @@ static lv_timer_t  *_imgTimer = nullptr;
 static int          _imgIdx   = -1;
 static int          _imgCount = 0;
 static uint32_t     _imgShown = 0;
-static uint32_t     _panStart = 0;
 static uint32_t     _phaseAt  = 0;
 static uint8_t      _phase    = 0;   // 0 pan/hold, 1 decode next, 2 crossfade
 static const size_t IMG_BYTES = (size_t)Slideshow::IMG_W * Slideshow::IMG_H * 2;
 
 static const uint32_t DWELL_MS = 14000;
-// Long enough that the drift advances at least a pixel per rendered frame.
-// Slower than ~13px/s and integer positions sit still for several frames and
-// then jump, which is exactly what made the old pan look unsteady.
-static const uint32_t PAN_MS   = 3000;
 static const uint32_t FADE_MS  = 900;
-// Room the frame can drift within before an edge would show (X only).
-static const int16_t  PAN_SPAN_X = Slideshow::IMG_W - TFT_WIDTH;
-static const int16_t  PAN_BASE_Y = -(Slideshow::IMG_H - PHOTO_H) / 2;
+// Uploads are composed on a 520x300 canvas with the whole photo centred in the
+// 480x216 window; these offsets line that window up exactly with the panel.
+static const int16_t  IMG_OFF_X = -(Slideshow::IMG_W - TFT_WIDTH) / 2;
+static const int16_t  IMG_OFF_Y = -(Slideshow::IMG_H - PHOTO_H) / 2;
 
 static bool ensureBuf(uint8_t slot) {
   if (_buf[slot]) return true;
@@ -137,33 +133,28 @@ static void imgTimerCb(lv_timer_t *) {
   if (!_imgObj) return;
   const uint32_t now = millis();
   switch (_phase) {
-    case 0: {   // drift across the spare pixels, then hold
-      const uint32_t ms = now - _panStart;
-      const int16_t x = (ms < PAN_MS)
-                          ? -(int16_t)((int32_t)PAN_SPAN_X * (int32_t)ms / (int32_t)PAN_MS)
-                          : -PAN_SPAN_X;
-      lv_obj_set_pos(_imgObj, x, PAN_BASE_Y);
+    case 0: {   // the photo is composed to fit, so the frame holds still
       if (now - _imgShown >= DWELL_MS) { _phase = 1; _phaseAt = now; }
       break;
     }
     case 1: {   // decode the replacement while the current frame still shows
       if (!loadNextValid()) {          // nothing decodable left: hold this frame
-        _panStart = _imgShown = now;
+        _imgShown = now;
         _phase = 0;
         break;
       }
       _imgCount = Slideshow::count();
       if (_imgObjNext) {
         setFrame(_imgObjNext, _cur ^ 1);
-        lv_obj_set_pos(_imgObjNext, -PAN_SPAN_X, PAN_BASE_Y);
+        lv_obj_set_pos(_imgObjNext, IMG_OFF_X, IMG_OFF_Y);
         lv_obj_set_style_img_opa(_imgObjNext, LV_OPA_TRANSP, 0);
         _phase = 2;
       } else {
         // No second buffer: fall back to a hard cut rather than a broken fade.
         _cur ^= 1;
         setFrame(_imgObj, _cur);
-        lv_obj_set_pos(_imgObj, 0, PAN_BASE_Y);
-        _panStart = _imgShown = now;
+        lv_obj_set_pos(_imgObj, IMG_OFF_X, IMG_OFF_Y);
+        _imgShown = now;
         _phase = 0;
       }
       _phaseAt = now;
@@ -178,9 +169,9 @@ static void imgTimerCb(lv_timer_t *) {
         setFrame(_imgObj, _cur);
         lv_obj_set_style_img_opa(_imgObj, LV_OPA_COVER, 0);
         lv_obj_set_style_img_opa(_imgObjNext, LV_OPA_TRANSP, 0);
-        lv_obj_set_pos(_imgObj, 0, PAN_BASE_Y);
-        lv_obj_set_pos(_imgObjNext, 0, PAN_BASE_Y);
-        _panStart = _imgShown = now;
+        lv_obj_set_pos(_imgObj, IMG_OFF_X, IMG_OFF_Y);
+        lv_obj_set_pos(_imgObjNext, IMG_OFF_X, IMG_OFF_Y);
+        _imgShown = now;
         _phase = 0;
       }
       break;
@@ -231,13 +222,13 @@ static void showImages() {
   lv_obj_clear_flag(_imgCont, LV_OBJ_FLAG_SCROLLABLE);
 
   _imgObj = lv_img_create(_imgCont);
-  lv_obj_set_pos(_imgObj, 0, PAN_BASE_Y);
+  lv_obj_set_pos(_imgObj, IMG_OFF_X, IMG_OFF_Y);
   setFrame(_imgObj, _cur);
 
   // Second frame buffer only if PSRAM allows; without it we cut instead of fade.
   if (ensureBuf(1)) {
     _imgObjNext = lv_img_create(_imgCont);
-    lv_obj_set_pos(_imgObjNext, 0, PAN_BASE_Y);
+    lv_obj_set_pos(_imgObjNext, IMG_OFF_X, IMG_OFF_Y);
     lv_obj_set_style_img_opa(_imgObjNext, LV_OPA_TRANSP, 0);
   } else {
     _imgObjNext = nullptr;
@@ -245,7 +236,6 @@ static void showImages() {
 
   _imgCount = Slideshow::count();
   _phase    = 0;
-  _panStart = millis();
   _imgShown = millis();
   _imgTimer = lv_timer_create(imgTimerCb, 30, nullptr);
 }
