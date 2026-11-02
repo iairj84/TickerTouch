@@ -3,6 +3,8 @@
 #include "themes/themes.h"
 #include "storage.h"
 #include "ticker_engine.h"
+#include "slideshow.h"
+#include <math.h>
 
 namespace Screensaver {
 
@@ -60,6 +62,136 @@ static void scrollCb(lv_timer_t *) {
   lv_obj_set_x(_tickerLbl, _tickerX);
 }
 
+// ── Photo slideshow ─────────────────────────────────────────────────────────
+// One decoded frame lives in a single PSRAM buffer and is swapped while the
+// image is off-screen, so a whole photo set costs 312KB no matter its length.
+// The buffer is deliberately NOT freed when the overlay closes: the image
+// objects are released with lv_obj_del_async() and must not outlive their data.
+static lv_obj_t    *_imgCont  = nullptr;
+static lv_obj_t    *_imgObj   = nullptr;
+static lv_img_dsc_t _imgDsc;
+static uint16_t    *_imgBuf   = nullptr;
+static lv_timer_t  *_imgTimer = nullptr;
+static int          _imgIdx   = -1;
+static int          _imgCount = 0;
+static uint32_t     _imgShown = 0;
+static uint32_t     _panStart = 0;
+static uint32_t     _phaseAt  = 0;
+static uint8_t      _phase    = 0;   // 0 pan, 1 slide out, 2 swap, 3 slide in
+static int16_t      _panY     = 0;
+
+static const uint32_t SLIDE_MS = 550;
+static const uint32_t DWELL_MS = 14000;
+// Room the larger frame can drift within before an edge would show.
+static const int16_t  PAN_SPAN_X = Slideshow::IMG_W - TFT_WIDTH;
+static const int16_t  PAN_SPAN_Y = Slideshow::IMG_H - TFT_HEIGHT;
+
+static bool loadImage(int idx) {
+  const size_t bytes = (size_t)Slideshow::IMG_W * Slideshow::IMG_H * 2;
+  if (!_imgBuf) {
+    _imgBuf = (uint16_t*)heap_caps_malloc(bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!_imgBuf) {
+      Serial.println(F("[Saver] PSRAM image buffer unavailable"));
+      return false;
+    }
+  }
+  memset(_imgBuf, 0, bytes);
+  int w = 0, h = 0;
+  const uint32_t t0 = millis();
+  if (!Slideshow::decode(idx, _imgBuf, &w, &h)) return false;
+  Serial.printf("[Saver] image %d/%d %dx%d in %ums\n",
+                idx + 1, _imgCount, w, h, (unsigned)(millis() - t0));
+
+  _imgDsc.header.always_zero = 0;
+  _imgDsc.header.w  = Slideshow::IMG_W;
+  _imgDsc.header.h  = Slideshow::IMG_H;
+  _imgDsc.header.cf = LV_IMG_CF_TRUE_COLOR;
+  _imgDsc.data_size = bytes;
+  _imgDsc.data      = (const uint8_t*)_imgBuf;
+  lv_img_cache_invalidate_src(&_imgDsc);   // same descriptor, new pixels
+  lv_img_set_src(_imgObj, &_imgDsc);
+  _imgIdx = idx;
+  return true;
+}
+
+static void imgTimerCb(lv_timer_t *) {
+  if (!_imgObj) return;
+  const uint32_t now = millis();
+  switch (_phase) {
+    case 0: {   // slow drift, so the frame is never quite still
+      const float t = (now - _panStart) / 1000.0f;
+      const int16_t x = (int16_t)((PAN_SPAN_X / 2.0f) * (1.0f - cosf(t * 0.18f)));
+      const int16_t y = (int16_t)((PAN_SPAN_Y / 2.0f) * (1.0f - cosf(t * 0.13f + 1.7f)));
+      lv_obj_set_pos(_imgObj, -x, -y);
+      _panY = -y;
+      if (now - _imgShown >= DWELL_MS) { _phase = 1; _phaseAt = now; }
+      break;
+    }
+    case 1: {   // slide the current frame off to the left
+      float p = (now - _phaseAt) / (float)SLIDE_MS;
+      if (p > 1.0f) p = 1.0f;
+      lv_obj_set_pos(_imgObj, -(int32_t)(p * (TFT_WIDTH + 40)), _panY);
+      if (p >= 1.0f) _phase = 2;
+      break;
+    }
+    case 2: {   // decode the next frame while the screen is clear
+      const int next = (_imgCount > 0) ? (_imgIdx + 1) % _imgCount : 0;
+      loadImage(next);
+      lv_obj_set_pos(_imgObj, TFT_WIDTH + 40, 0);
+      _panY = 0;
+      _phase = 3;
+      _phaseAt = now;
+      break;
+    }
+    case 3: {   // slide the new frame in from the right
+      float p = (now - _phaseAt) / (float)SLIDE_MS;
+      if (p > 1.0f) p = 1.0f;
+      lv_obj_set_pos(_imgObj, (int32_t)((1.0f - p) * (TFT_WIDTH + 40)), 0);
+      if (p >= 1.0f) { _phase = 0; _panStart = now; _imgShown = now; }
+      break;
+    }
+  }
+}
+
+static void showImages() {
+  _imgCount = Slideshow::count();
+  if (_imgCount <= 0) return;
+
+  _imgCont = lv_obj_create(_overlay);
+  lv_obj_set_size(_imgCont, TFT_WIDTH, TFT_HEIGHT);
+  lv_obj_set_pos(_imgCont, 0, 0);
+  lv_obj_set_style_bg_color(_imgCont, lv_color_black(), 0);
+  lv_obj_set_style_bg_opa(_imgCont, LV_OPA_COVER, 0);
+  lv_obj_set_style_border_width(_imgCont, 0, 0);
+  lv_obj_set_style_radius(_imgCont, 0, 0);
+  lv_obj_set_style_pad_all(_imgCont, 0, 0);
+  lv_obj_clear_flag(_imgCont, LV_OBJ_FLAG_SCROLLABLE);
+
+  _imgObj = lv_img_create(_imgCont);
+  lv_obj_set_pos(_imgObj, 0, 0);
+
+  if (!loadImage(0)) {
+    lv_obj_del(_imgCont);
+    _imgCont = nullptr;
+    _imgObj  = nullptr;
+    return;
+  }
+  _phase    = 0;
+  _panStart = millis();
+  _imgShown = millis();
+  _imgTimer = lv_timer_create(imgTimerCb, 50, nullptr);
+}
+
+static void hideImages() {
+  if (_imgTimer) { lv_timer_del(_imgTimer); _imgTimer = nullptr; }
+  // Objects go away with the overlay (deleted async); the buffer stays owned
+  // here so nothing can be freed underneath a pending redraw.
+  _imgCont = nullptr;
+  _imgObj  = nullptr;
+  _imgIdx  = -1;
+  _phase   = 0;
+}
+
 static void showOverlay() {
   if (_overlay) return;
   initStyles();
@@ -73,6 +205,9 @@ static void showOverlay() {
   lv_obj_set_style_radius(_overlay, 0, 0);
   lv_obj_set_style_pad_all(_overlay, 0, 0);
   lv_obj_clear_flag(_overlay, LV_OBJ_FLAG_SCROLLABLE);
+
+  // Photos first, so the clock and ticker draw on top of them.
+  showImages();
 
   _floatClock = lv_label_create(_overlay);
   lv_label_set_text(_floatClock, "--:--");
@@ -118,6 +253,7 @@ static void showOverlay() {
 static void hideOverlay() {
   if (!_overlay) return;
   if (_scrollTimer) { lv_timer_del(_scrollTimer); _scrollTimer = nullptr; }
+  hideImages();
   // hideOverlay() runs from the indev read callback (wake-on-touch). Deleting the
   // object LVGL is still holding as the active touch target frees memory LVGL goes
   // on to dereference -> LoadProhibited. Defer the free to the next lv_timer_handler.

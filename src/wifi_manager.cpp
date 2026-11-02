@@ -2,6 +2,7 @@
 #include "storage.h"
 #include "data/data_manager.h"
 #include "sports_teams.h"
+#include "slideshow.h"
 #include <Preferences.h>
 
 // Declared in TickerTouch.ino — must be outside any namespace
@@ -371,6 +372,15 @@ static String settingsPage() {
   }
   h += "</div></div>";
 
+  // Screensaver photo set — lives on its own page because it uploads files
+  h += "<div class='section'><strong>Screensaver</strong>"
+       "<a href='/images' style='display:inline-block;margin-top:.6rem;padding:.55rem .9rem;"
+       "border:1px solid #2a2a3a;border-radius:8px;color:#6366f1;text-decoration:none;font-size:.9rem'>"
+       "Manage screensaver images &rarr;</a>"
+       "<small style='display:block;color:#888;margin-top:.4rem'>"
+       "Photos that scroll past after the idle timeout. Any photo works - the page shrinks it before upload."
+       "</small></div>";
+
   h += "<button class='btn' type='submit'>Save Settings</button>";
   // Restart button — outside the form, uses a separate endpoint
   h += "<button class='btn' type='button' "
@@ -586,6 +596,151 @@ static void handlePortalSave() {
   credentialsSaved = true;
 }
 
+// ── Screensaver images ────────────────────────────────────────────────────────
+// The page resizes every picked photo to Slideshow::IMG_W x IMG_H in the browser
+// (canvas + JPEG re-encode) before posting it, so a 12MP camera image never has
+// to fit in the device's RAM and the user needs no image tooling.
+static String imagesPage() {
+  String h;
+  h.reserve(7000);
+  h += "<!DOCTYPE html><html lang='en'><head><meta charset='UTF-8'>"
+       "<meta name='viewport' content='width=device-width,initial-scale=1'>"
+       "<title>TickerTouch - Screensaver Images</title><style>"
+       "*{box-sizing:border-box;margin:0;padding:0}"
+       "body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0f0f14;color:#e8e8f0;padding:1rem}"
+       ".wrap{max-width:560px;margin:0 auto}"
+       "h1{font-size:1.25rem;font-weight:600;margin:.6rem 0 .2rem}"
+       ".sub{color:#888;font-size:.85rem;margin-bottom:1rem;line-height:1.5}"
+       ".card{background:#1a1a24;border:1px solid #2a2a3a;border-radius:14px;padding:1.1rem;margin-bottom:1rem}"
+       ".card strong{font-size:.78rem;color:#aaa;text-transform:uppercase;letter-spacing:.05em}"
+       "input[type=file]{display:block;width:100%;margin-top:.7rem;padding:.6rem;background:#12121a;"
+       "border:1px dashed #3a3a4a;border-radius:8px;color:#aaa;font-size:.85rem}"
+       ".btn{display:inline-block;margin-top:.7rem;padding:.55rem 1rem;border:none;border-radius:8px;"
+       "font-weight:600;font-size:.9rem;cursor:pointer;background:#6366f1;color:#fff}"
+       ".btn.ghost{background:#374151;margin-top:1rem}"
+       ".btn.sm{background:#7f1d1d;padding:.35rem .7rem;margin:0;font-size:.8rem}"
+       ".row{display:flex;align-items:center;justify-content:space-between;padding:.55rem 0;"
+       "border-bottom:1px solid #23232f;font-size:.9rem}"
+       ".row:last-child{border-bottom:none}"
+       ".mono{color:#666;font-size:.8rem;margin-left:.5rem;font-variant-numeric:tabular-nums}"
+       ".bar{height:8px;background:#12121a;border-radius:4px;overflow:hidden;margin:.7rem 0 .4rem}"
+       ".fill{height:100%;background:#6366f1;width:";
+  {
+    size_t total = Slideshow::totalBytes(), used = Slideshow::usedBytes();
+    h += String(total ? (unsigned)((used * 100) / total) : 0);
+    h += "%}"
+         "#log{font-size:.82rem;color:#9aa;min-height:1.2rem;margin-top:.7rem;white-space:pre-wrap}"
+         "a.back{color:#6366f1;font-size:.85rem;text-decoration:none}"
+         "</style></head><body><div class='wrap'>"
+         "<a class='back' href='/'>&larr; Settings</a>"
+         "<h1>Screensaver Images</h1>"
+         "<p class='sub'>Pick photos from your phone or computer. Each one is cropped to 520x300, "
+         "compressed in the browser, then uploaded - so large camera images are fine and nothing "
+         "needs resizing by hand.</p>";
+    h += "<div class='card'><strong>Storage</strong>";
+    h += "<div class='bar'><div class='fill'></div></div>";
+    h += "<div class='mono' style='margin:0'>";
+    h += String((unsigned)(used / 1024)); h += " KB of ";
+    h += String((unsigned)(total / 1024)); h += " KB used &middot; ";
+    h += String(Slideshow::count()); h += " image(s)</div></div>";
+  }
+
+  h += "<div class='card'><strong>Add photos</strong>"
+       "<input type='file' id='f' accept='image/*' multiple>"
+       "<button class='btn' id='up' type='button' disabled>Upload</button>"
+       "<div id='log'></div></div>";
+
+  h += "<div class='card'><strong>Current set</strong>";
+  const int n = Slideshow::count();
+  if (n == 0) {
+    h += "<div class='mono' style='margin:.6rem 0 0'>No images yet - the screensaver stays as the floating clock.</div>";
+  } else {
+    for (int i = 0; i < n; i++) {
+      h += "<div class='row'><span>";
+      h += String(i + 1);
+      h += ". <span class='mono'>";
+      h += String((unsigned)(Slideshow::sizeAt(i) / 1024));
+      h += " KB</span></span><button class='btn sm' type='button' onclick='del(";
+      h += String(i);
+      h += ")'>Remove</button></div>";
+    }
+    h += "</div><button class='btn ghost' type='button' onclick='clearAll()'>Remove all images</button>";
+  }
+  h += "</div>";
+
+  h += "<div class='card' style='font-size:.8rem;color:#777;line-height:1.6'>"
+       "Images are kept in device flash, so they survive a restart and a firmware update "
+       "(decline the erase prompt when flashing). About ";
+  h += String((unsigned)(Slideshow::freeBytes() / 1024));
+  h += " KB is free for roughly ";
+  h += String((unsigned)(Slideshow::freeBytes() / 30000));
+  h += " more photo(s) at the usual size.</div>";
+
+  h += "<script>"
+       "var W=520,H=300;"
+       "function log(m){document.getElementById('log').textContent=m;}"
+       "var input=document.getElementById('f'),btn=document.getElementById('up');"
+       "input.onchange=function(){btn.disabled=!input.files.length;log('');};"
+       "function shrink(file){return createImageBitmap(file).then(function(bmp){"
+       "var c=document.createElement('canvas');c.width=W;c.height=H;"
+       "var x=c.getContext('2d');"
+       "var s=Math.max(W/bmp.width,H/bmp.height);"
+       "var dw=bmp.width*s,dh=bmp.height*s;"
+       "x.drawImage(bmp,(W-dw)/2,(H-dh)/2,dw,dh);"
+       "return new Promise(function(r){c.toBlob(r,'image/jpeg',0.82);});});}"
+       "btn.onclick=function(){var files=Array.prototype.slice.call(input.files);btn.disabled=true;"
+       "var i=0;(function next(){"
+       "if(i>=files.length){log('Done - reloading...');setTimeout(function(){location.reload();},600);return;}"
+       "var f=files[i++];log('Preparing '+i+'/'+files.length+': '+f.name);"
+       "shrink(f).then(function(blob){var fd=new FormData();"
+       "fd.append('f',blob,f.name.replace(/\\.[^.]+$/,'')+'.jpg');"
+       "log('Uploading '+i+'/'+files.length+' ('+Math.round(blob.size/1024)+' KB)...');"
+       "return fetch('/upload',{method:'POST',body:fd});}).then(function(r){"
+       "if(!r.ok)throw new Error('device returned '+r.status);next();"
+       "}).catch(function(e){log('Failed on '+f.name+': '+e.message);btn.disabled=false;});"
+       "})();};"
+       "function del(i){if(!confirm('Remove this image?'))return;"
+       "fetch('/img/delete',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},"
+       "body:'idx='+i}).then(function(){location.reload();});}"
+       "function clearAll(){if(!confirm('Remove all screensaver images?'))return;"
+       "fetch('/img/clear',{method:'POST'}).then(function(){location.reload();});}"
+       "</script></div></body></html>";
+  return h;
+}
+
+static void handleImagesGet() { server.send(200, "text/html", imagesPage()); }
+
+static void handleUploadChunk() {
+  HTTPUpload &u = server.upload();
+  if (u.status == UPLOAD_FILE_START) {
+    Serial.printf("[Images] upload start: %s\n", u.filename.c_str());
+    if (!Slideshow::uploadBegin()) Serial.println(F("[Images] cannot accept upload"));
+  } else if (u.status == UPLOAD_FILE_WRITE) {
+    if (Slideshow::uploading()) Slideshow::uploadWrite(u.buf, u.currentSize);
+  } else if (u.status == UPLOAD_FILE_END) {
+    Serial.printf("[Images] upload finished: %u bytes\n", (unsigned)u.totalSize);
+    Slideshow::uploadEnd();
+  } else if (u.status == UPLOAD_FILE_ABORTED) {
+    Serial.println(F("[Images] upload aborted"));
+    Slideshow::uploadAbort();
+  }
+}
+
+static void handleUploadDone() {
+  server.send(200, "application/json", "{\"ok\":true}");
+}
+
+static void handleImageDelete() {
+  const int idx = server.arg("idx").toInt();
+  const bool ok = Slideshow::removeAt(idx);
+  server.send(200, "application/json", ok ? "{\"ok\":true}" : "{\"ok\":false}");
+}
+
+static void handleImagesClear() {
+  Slideshow::removeAll();
+  server.send(200, "application/json", "{\"ok\":true}");
+}
+
 static void handleNotFound() {
   server.sendHeader("Location", "http://192.168.4.1", true);
   server.send(302, "text/plain", "Redirect");
@@ -651,6 +806,10 @@ void startSettingsServer() {
   server.on("/",        HTTP_GET,  handleSettingsGet);
   server.on("/save",    HTTP_POST, handleSettingsSave);
   server.on("/scan",    HTTP_GET,  handleScan);
+  server.on("/images",  HTTP_GET,  handleImagesGet);
+  server.on("/upload",  HTTP_POST, handleUploadDone, handleUploadChunk);
+  server.on("/img/delete", HTTP_POST, handleImageDelete);
+  server.on("/img/clear",  HTTP_POST, handleImagesClear);
   server.on("/restart", HTTP_POST, [](){
     server.send(200, "text/plain", "Restarting...");
     delay(500);
