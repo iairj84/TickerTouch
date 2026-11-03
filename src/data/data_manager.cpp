@@ -410,8 +410,15 @@ static const LG LGS[] = {
 };
 
 // Forward declaration for sports stream fill
-static int sportsFill(WiFiClient *stream, char *buf, int &bLen, int BSIZ, uint32_t deadline) {
-  if (bLen > BSIZ * 3/4) {
+// Compaction keeps only the tail of the buffer. That is safe while hunting for the
+// next "competitors" marker, because nothing in the buffer is wanted yet. It is
+// NOT safe once a block has been slid to offset 0 and the caller is waiting for it
+// to finish arriving: compacting then throws away the front of that block, the
+// parse finds one team instead of two, and the game disappears. Callers in that
+// state pass allowCompact = false.
+static int sportsFill(WiFiClient *stream, char *buf, int &bLen, int BSIZ,
+                      uint32_t deadline, bool allowCompact = true) {
+  if (allowCompact && bLen > BSIZ * 3/4) {
     int keep = BSIZ/2;
     memmove(buf, buf + bLen - keep, keep + 1);
     bLen = keep;
@@ -533,9 +540,11 @@ void fetchSports() {
         cp = buf;
         cpOff = 0;
       }
-      while (bLen < 12500 && millis() < deadline) {
+      // bLen < BSIZ-1 stops a block larger than the whole buffer from spinning
+      // here until the deadline; it gets skipped and logged instead.
+      while (bLen < 12500 && bLen < BSIZ - 1 && millis() < deadline) {
         const int oldLen = bLen;
-        sportsFill(stream, buf, bLen, BSIZ, deadline);
+        sportsFill(stream, buf, bLen, BSIZ, deadline, false);
         if (!stream->connected() && bLen == oldLen) break;
       }
 
@@ -633,7 +642,7 @@ void fetchSports() {
             if (!valEnd) {
               // Closing quote not in buffer — refill and retry
               int oldBLen = bLen;
-              sportsFill(stream, buf, bLen, BSIZ, deadline);
+              sportsFill(stream, buf, bLen, BSIZ, deadline, false);
               if (bLen < oldBLen) {
                 int removed = oldBLen - bLen;
                 afterCompOff = (afterCompOff > removed) ? afterCompOff - removed : 0;
@@ -653,7 +662,7 @@ void fetchSports() {
         }
         // Not found yet — refill
         int oldBLen = bLen;
-        sportsFill(stream, buf, bLen, BSIZ, deadline);
+        sportsFill(stream, buf, bLen, BSIZ, deadline, false);
         if (bLen < oldBLen) {
           // Buffer slid — adjust offset
           int removed = oldBLen - bLen;
@@ -662,6 +671,12 @@ void fetchSports() {
         if (bLen == oldBLen && !stream->connected()) break;
       }
 
+      if (found != 2) {
+        // Otherwise a dropped game leaves no trace at all, and a count that moves
+        // between two identical fetches cannot be explained from the log.
+        Serial.printf("[Sports] %s: block skipped (found=%d, buflen=%d)\n",
+                      lg.abbr, found, bLen);
+      }
       if (found == 2) {
         // Fill in status fallback if empty
         if (!status[0]) {
