@@ -171,6 +171,25 @@ static bool tzAgreesWith(int32_t expectSec) {
   return diff == expectSec;
 }
 
+static char _tzUsed[48] = {};   // zone actually applied, empty = fixed offset only
+
+const char *tzZoneName() { return _tzUsed[0] ? _tzUsed : "fixed offset only"; }
+
+// Local-minus-UTC in seconds, measured rather than remembered, so /diag reports
+// what the clock is doing rather than what we intended it to do.
+int32_t tzOffsetNow() {
+  const time_t now = time(nullptr);
+  if (now < 100000) return Storage::cfg.tzOffsetSec;
+  struct tm lt, gt;
+  localtime_r(&now, &lt);
+  gmtime_r(&now, &gt);
+  long diff = (long)lt.tm_hour*3600 + lt.tm_min*60
+            - ((long)gt.tm_hour*3600 + gt.tm_min*60);
+  if (diff >  43200) diff -= 86400;
+  if (diff < -43200) diff += 86400;
+  return (int32_t)diff;
+}
+
 void fetchTimezone() {
   char tzBuf[160] = {};
   char zone[48] = {};
@@ -193,15 +212,28 @@ void fetchTimezone() {
   else Serial.println(F(" FAILED"));
 
   // Fixed offset is already in place; upgrade to the real zone if we know it.
-  const char *posix = zone[0] ? posixTzFor(zone) : nullptr;
-  if (!posix) return;
+  // An explicit choice in settings wins over the lookup: a VPN or a
+  // mis-geolocated address quietly lands the whole device in the wrong zone, and
+  // the symptom is the clock and every UTC calendar entry sitting an hour out.
+  const char *want = Storage::cfg.tzZone[0] ? Storage::cfg.tzZone : zone;
+  const char *posix = want[0] ? posixTzFor(want) : nullptr;
+  if (!posix) {
+    Serial.printf("[TZ] no rule for '%s', keeping fixed offset\n", want);
+    return;
+  }
   setenv("TZ", posix, 1);
   tzset();
-  if (!tzAgreesWith(offset)) {
-    Serial.printf("[TZ] cannot use %s, keeping fixed offset\n", posix);
+  strlcpy(_tzUsed, want, sizeof(_tzUsed));
+  const bool agrees = tzAgreesWith(offset);
+  if (!agrees && !Storage::cfg.tzZone[0]) {
+    // An auto-detected zone that disagrees with the reported offset means the
+    // rule did not take; the reported offset is known to be right, so keep it.
+    Serial.printf("[TZ] %s unusable, keeping fixed offset\n", posix);
     configTime(offset, 0, "pool.ntp.org", "time.nist.gov");
+    _tzUsed[0] = '\0';
   } else {
-    Serial.printf("[TZ] %s -> %s\n", zone, posix);
+    Serial.printf("[TZ] %s -> %s (%s IP offset)\n", want, posix,
+                  agrees ? "matches" : "overrides");
   }
 }
 

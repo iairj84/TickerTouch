@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>TickerTouch — Timezone Control</title>
+    <style>
+        body { font-family: sans-serif; text-align: center; padding: 50px; }
+        button { padding: 15px 25px; font-size: 18px; cursor: pointer; }
+        .warn { max-width: 560px; margin: 24px auto; color: #7a4a00; background: #fff4e0;
+                border: 1px solid #f0c37a; border-radius: 8px; padding: 14px; text-align: left; }
+        .keep { max-width: 560px; margin: 24px auto; color: #14532d; background: #ecfdf5;
+                border: 1px solid #86efac; border-radius: 8px; padding: 14px; text-align: left; }
+        .fine { color: #666; font-size: 14px; }
+        .note { max-width: 560px; margin: 24px auto; text-align: left; color: #333;
+                background: #f4f4f8; border: 1px solid #ddd; border-radius: 8px; padding: 14px; }
+    </style>
+</head>
+<body>
+    <h1>TickerTouch — Timezone Control</h1>
+    <p>Version 1.7.0 — this is <strong>not</strong> the default firmware.</p>
+
+    <p class="warn">
+        The clock and the calendar take their timezone from an IP lookup. When that lookup is
+        wrong — a VPN, a phone hotspot, an address the database maps to another state — the whole
+        device sits in the wrong zone. After a daylight-saving change that shows up as everything
+        being an hour out, while entries the feed sends as plain local time still look right.<br><br>
+        Settings now has a <strong>Timezone</strong> dropdown, so the zone can be set directly
+        instead of hoped for. /diag also gained a <strong>Time</strong> card that states the zone
+        in use, the offset it is applying, and what the clock and UTC each read.
+    </p>
+
+    <p class="keep">
+        <strong>Keep your settings:</strong> this installer asks whether to erase the device
+        before flashing. <strong>Leave erase off</strong> — erasing wipes the WiFi
+        credentials, city and league selection, both calendar URLs and the icon choices.
+    </p>
+
+    <div class="note">
+        <strong>What to check after installing</strong>
+        <ul style="margin:8px 0 0 18px; padding:0; line-height:1.7">
+            <li>Open <code>/diag</code> and read the Time card.</li>
+            <li>If <b>Zone</b> is not yours, set it in Settings &rarr; Display &rarr; Timezone.</li>
+            <li>Restart from the settings page, then re-check the Time card.</li>
+            <li>Calendar entries and the header clock should now agree with your phone.</li>
+        </ul>
+    </div>
+
+    <p class="fine">
+        A wrong zone and a wrong conversion look identical from the outside, which is why the page
+        reports what the device is actually applying rather than what it was told. If the zone is
+        right and entries are still out, that narrows it to the feed's own timestamps.
+    </p>
+
+    <script type="module" src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"></script>
+
+    <esp-web-install-button manifest="./manifest-1_7_0c.json">
+        <button slot="activate">Connect and Install</button>
+        <span slot="unsupported">Your browser does not support Web Serial — use Chrome or Edge on desktop.</span>
+        <span slot="not-allowed">Web Serial needs HTTPS (this page is) and a direct connection.</span>
+    </esp-web-install-button>
+
+    <p class="fine">Default installer: <a href="../">iairj84.github.io/TickerTouch</a></p>
+</body>
+</html>

@@ -149,6 +149,12 @@ void fetchCrypto();
 void fetchWeather();
 void fetchCalendar();
 void fetchTimezone();
+
+// What the clock is actually running on. Surfaced on /diag: "an hour off" is
+// almost always a zone that is not the one you think, and the page has to be
+// able to say which zone it picked.
+const char *tzZoneName();
+int32_t     tzOffsetNow();
 void geocodeCity();
 void forceRefresh();
 const char* buildTickerString();

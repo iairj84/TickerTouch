@@ -52,6 +52,7 @@ void load() {
   prefs.getString("state3",cfg.extraCities[1].state, sizeof(cfg.extraCities[1].state));
   cfg.extraCities[1].lat = prefs.getFloat("lat3", 0.0f);
   cfg.extraCities[1].lon = prefs.getFloat("lon3", 0.0f);
+  prefs.getString("tzZone", cfg.tzZone, sizeof(cfg.tzZone));
   prefs.getString("icalUrl", cfg.icalUrl, sizeof(cfg.icalUrl));
   prefs.getString("icalUrl2", cfg.icalUrl2, sizeof(cfg.icalUrl2));
   cfg.calIcon1 = prefs.getUChar("calIcon1", CALICON_HOME);
@@ -88,6 +89,7 @@ void save() {
   prefs.putString("state3", cfg.extraCities[1].state);
   prefs.putFloat("lat3",    cfg.extraCities[1].lat);
   prefs.putFloat("lon3",    cfg.extraCities[1].lon);
+  prefs.putString("tzZone", cfg.tzZone);
   prefs.putString("icalUrl", cfg.icalUrl);
   prefs.putString("icalUrl2", cfg.icalUrl2);
   prefs.putUChar("calIcon1", cfg.calIcon1);

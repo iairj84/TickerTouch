@@ -58,6 +58,11 @@ struct UserConfig {
   // Local UTC offset in seconds (set from ip-api on boot, used to convert game times)
   int32_t tzOffsetSec = 0;
 
+  // Timezone override. Empty = take the zone from the IP lookup. Set it when the
+  // lookup is wrong, which is otherwise a silent way for the clock and every UTC
+  // calendar entry to sit an hour out.
+  char tzZone[40] = {};
+
   // iCal URL for calendar tab (Google/Outlook/Apple secret feed URL)
   char icalUrl[256] = {};
 

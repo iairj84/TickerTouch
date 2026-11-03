@@ -348,6 +348,33 @@ static String settingsPage() {
   }
   h += "</select>";
 
+  // Timezone: automatic by default. Overridable because a wrong zone is a silent
+  // hour of drift that looks like a calendar bug rather than a settings one.
+  struct { const char *label; const char *zone; } tzs[] = {
+    {"Automatic (from IP)",            ""},
+    {"US Pacific",                     "America/Los_Angeles"},
+    {"US Mountain",                    "America/Denver"},
+    {"US Mountain - Arizona, no DST",  "America/Phoenix"},
+    {"US Central",                     "America/Chicago"},
+    {"US Eastern",                     "America/New_York"},
+    {"Alaska",                         "America/Anchorage"},
+    {"Hawaii",                         "Pacific/Honolulu"},
+    {"UK",                             "Europe/London"},
+    {"Central Europe",                 "Europe/Berlin"},
+    {"Sydney",                         "Australia/Sydney"},
+    {"Tokyo",                          "Asia/Tokyo"},
+  };
+  h += "<label style='margin-top:8px'>Timezone</label><select name='tzZone'>";
+  for (auto &z : tzs) {
+    h += "<option value='"; h += z.zone; h += "'";
+    if (!strcmp(Storage::cfg.tzZone, z.zone)) h += " selected";
+    h += ">"; h += z.label; h += "</option>";
+  }
+  h += "</select>";
+  h += "<small style='color:#888'>Automatic is right unless your address points somewhere else. "
+       "A wrong zone makes the clock, and every calendar entry that arrives in UTC, sit an hour out. "
+       "Takes effect after a restart.</small>";
+
   h += "</div>";
 
   // Calendar
@@ -538,6 +565,13 @@ static void handleSettingsSave() {
   // Theme
   String theme = server.arg("theme");
   if (theme.length()) Storage::cfg.theme = (uint8_t)theme.toInt();
+
+  // Timezone override (empty = automatic)
+  if (server.hasArg("tzZone")) {
+    String tz = server.arg("tzZone");
+    tz.trim();
+    tz.toCharArray(Storage::cfg.tzZone, sizeof(Storage::cfg.tzZone));
+  }
 
   // Save everything to NVS
   Storage::save();
@@ -919,6 +953,32 @@ static void handleDiagGet() {
        "<h1>Diagnostics</h1><p class='sub'>";
   h += FW_VERSION;
   h += " &middot; refreshes every 10s</p>";
+
+  // An hour of drift is the most common "the calendar is wrong" report, and it is
+  // nearly always the zone. State it here rather than making anyone guess.
+  h += "<div class='card'><strong>Time</strong>";
+  diagRow(h, "Zone", DataManager::tzZoneName());
+  {
+    const int32_t o = DataManager::tzOffsetNow();
+    const long a = (long)(o < 0 ? -o : o);
+    snprintf(buf, sizeof(buf), "%s%ld:%02ld", o < 0 ? "-" : "+", a / 3600, (a % 3600) / 60);
+    diagRow(h, "Offset now", buf);
+  }
+  {
+    const time_t t = time(nullptr);
+    if (t < 100000) {
+      diagRow(h, "Clock", "not synced yet", "warn");
+    } else {
+      struct tm lt, gt;
+      localtime_r(&t, &lt);
+      gmtime_r(&t, &gt);
+      snprintf(buf, sizeof(buf), "%02d:%02d", lt.tm_hour, lt.tm_min);
+      diagRow(h, "Clock says", buf);
+      snprintf(buf, sizeof(buf), "%02d:%02d", gt.tm_hour, gt.tm_min);
+      diagRow(h, "UTC says", buf);
+    }
+  }
+  h += "</div>";
 
   h += "<div class='card'><strong>Build</strong>";
   diagRow(h, "Version", FW_VERSION);
