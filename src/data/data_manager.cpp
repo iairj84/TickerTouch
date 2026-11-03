@@ -120,24 +120,89 @@ static const char* wmoDesc(int c) {
 }
 
 // ── Timezone + NTP ─────────────────────────────────────────────────────────────
+// ip-api reports the offset in force right now. That is enough to set the clock
+// once, but not enough to stay correct: a fixed offset leaves the display an hour
+// out from the moment daylight saving changes, and converts every stored UTC
+// event from the other half of the year an hour wrong. The zone name lets newlib
+// apply the real rules, so the offset in force at each instant is the one used.
+static const char *posixTzFor(const char *iana) {
+  static const struct { const char *name; const char *posix; } T[] = {
+    {"America/Los_Angeles", "PST8PDT,M3.2.0,M11.1.0"},
+    {"America/Vancouver",   "PST8PDT,M3.2.0,M11.1.0"},
+    {"America/Tijuana",     "PST8PDT,M3.2.0,M11.1.0"},
+    {"America/Denver",      "MST7MDT,M3.2.0,M11.1.0"},
+    {"America/Edmonton",    "MST7MDT,M3.2.0,M11.1.0"},
+    {"America/Phoenix",     "MST7"},
+    {"America/Chicago",     "CST6CDT,M3.2.0,M11.1.0"},
+    {"America/Winnipeg",    "CST6CDT,M3.2.0,M11.1.0"},
+    {"America/Mexico_City", "CST6"},
+    {"America/New_York",    "EST5EDT,M3.2.0,M11.1.0"},
+    {"America/Toronto",     "EST5EDT,M3.2.0,M11.1.0"},
+    {"America/Detroit",     "EST5EDT,M3.2.0,M11.1.0"},
+    {"America/Anchorage",   "AKST9AKDT,M3.2.0,M11.1.0"},
+    {"Pacific/Honolulu",    "HST10"},
+    {"Europe/London",       "GMT0BST,M3.5.0/1,M10.5.0"},
+    {"Europe/Dublin",       "GMT0IST,M3.5.0/1,M10.5.0"},
+    {"Europe/Berlin",       "CET-1CEST,M3.5.0,M10.5.0/3"},
+    {"Europe/Paris",        "CET-1CEST,M3.5.0,M10.5.0/3"},
+    {"Europe/Madrid",       "CET-1CEST,M3.5.0,M10.5.0/3"},
+    {"Europe/Rome",         "CET-1CEST,M3.5.0,M10.5.0/3"},
+    {"Europe/Amsterdam",    "CET-1CEST,M3.5.0,M10.5.0/3"},
+    {"Australia/Sydney",    "AEST-10AEDT,M10.1.0,M4.1.0/3"},
+    {"Asia/Tokyo",          "JST-9"},
+  };
+  for (const auto &t : T) if (!strcmp(t.name, iana)) return t.posix;
+  return nullptr;
+}
+
+// Confirms the zone we just installed agrees with the offset the service reported
+// for right now. If newlib cannot parse the rule, this catches it immediately and
+// the caller falls back to the fixed offset rather than silently drifting.
+static bool tzAgreesWith(int32_t expectSec) {
+  const time_t now = time(nullptr);
+  if (now < 100000) return true;                 // clock not set yet, cannot judge
+  struct tm lt, gt;
+  localtime_r(&now, &lt);
+  gmtime_r(&now, &gt);
+  long diff = (long)lt.tm_hour*3600 + lt.tm_min*60
+            - ((long)gt.tm_hour*3600 + gt.tm_min*60);
+  if (diff >  43200) diff -= 86400;
+  if (diff < -43200) diff += 86400;
+  return diff == expectSec;
+}
+
 void fetchTimezone() {
-  char tzBuf[128] = {};
-  int len = httpGET_buf("http://ip-api.com/json/?fields=offset", tzBuf, sizeof(tzBuf), 5000);
+  char tzBuf[160] = {};
+  char zone[48] = {};
+  int len = httpGET_buf("http://ip-api.com/json/?fields=offset,timezone", tzBuf, sizeof(tzBuf), 5000);
   int32_t offset = 0;
   if (len > 0) {
-    StaticJsonDocument<128> doc;
+    StaticJsonDocument<192> doc;
     if (!deserializeJson(doc, tzBuf)) {
       offset = doc["offset"]|0;
-      Storage::cfg.tzOffsetSec = offset; // save for game time conversion
+      Storage::cfg.tzOffsetSec = offset; // current offset, used by sports times
+      strlcpy(zone, doc["timezone"]|"", sizeof(zone));
     }
   }
-  Serial.printf("[TZ] offset=%d sec\n", offset);
+  Serial.printf("[TZ] offset=%d sec zone=%s\n", offset, zone);
   configTime(offset, 0, "pool.ntp.org", "time.nist.gov");
   Serial.print(F("[NTP]"));
   for (int i=0; i<40 && time(nullptr)<100000; i++) { delay(250); Serial.print('.'); }
   time_t now=time(nullptr);
   if (now>100000) { char b[24]; strftime(b,sizeof(b),"%H:%M:%S",localtime(&now)); Serial.printf(" OK: %s\n",b); }
   else Serial.println(F(" FAILED"));
+
+  // Fixed offset is already in place; upgrade to the real zone if we know it.
+  const char *posix = zone[0] ? posixTzFor(zone) : nullptr;
+  if (!posix) return;
+  setenv("TZ", posix, 1);
+  tzset();
+  if (!tzAgreesWith(offset)) {
+    Serial.printf("[TZ] cannot use %s, keeping fixed offset\n", posix);
+    configTime(offset, 0, "pool.ntp.org", "time.nist.gov");
+  } else {
+    Serial.printf("[TZ] %s -> %s\n", zone, posix);
+  }
 }
 
 // ── Geocode ─────────────────────────────────────────────────────────────────────
@@ -1170,6 +1235,26 @@ static uint32_t civilDays(int y, int m, int d) {
   return (uint32_t)(era * 146097 + doe - 719468);
 }
 
+// Convert a UTC wall clock into the local wall clock, letting the system timezone
+// apply whatever daylight saving rule is in force at that instant. Returns false
+// if localtime() cannot answer, so the caller keeps the UTC values rather than
+// inventing an offset.
+static bool utcToLocal(int y, int m, int d, int h, int mi,
+                       int &ly, int &lm, int &ld,
+                       int &lh, int &lmi, int &dayShift) {
+  const uint32_t days = civilDays(y, m, d);
+  const time_t epoch = (time_t)days * 86400 + (time_t)h * 3600 + (time_t)mi * 60;
+  struct tm lt;
+  if (!localtime_r(&epoch, &lt)) return false;
+  ly  = lt.tm_year + 1900;
+  lm  = lt.tm_mon + 1;
+  ld  = lt.tm_mday;
+  lh  = lt.tm_hour;
+  lmi = lt.tm_min;
+  dayShift = (int)civilDays(ly, lm, ld) - (int)days;
+  return true;
+}
+
 // 0 = Sunday
 static int weekdayOf(uint32_t days) { return (int)((days + 4) % 7); }
 
@@ -1381,7 +1466,7 @@ static uint8_t       _overCount;
 // the feed was actually retrieved, so a failed second calendar cannot look like
 // a healthy fetch on /diag.
 static bool calFetchFeed(const char *calUrl, uint8_t feedIdx,
-                         char (*dateDays)[9], char (*dateUTCnext)[9]) {
+                         char (*dateDays)[9]) {
   HTTPClient http;
   WiFiClient plain;
   WiFiClientSecure tls;
@@ -1466,44 +1551,37 @@ static bool calFetchFeed(const char *calUrl, uint8_t feedIdx,
       // "meeting that is not there" symptom.
       if (!strcasecmp(curStatus, "CANCELLED")) return;
 
-      bool isUTC = (strlen(curDtStart) >= 16 && curDtStart[15] == 'Z');
-      int matchDay = -1; // which day 0-6 this event falls on, -1 = not in range
-
-      // Determine the UTC H/M offset once for UTC events
-      int utcH = 0, utcM = 0;
-      if (isUTC && strlen(curDtStart) >= 13)
-        sscanf(curDtStart + 9, "%2d%2d", &utcH, &utcM);
-
-      for (int d = 0; d < CAL_DAYS && matchDay < 0; d++) {
-        if (strncmp(curDtStart, dateDays[d], 8) == 0) {
-          if (!isUTC) {
-            matchDay = d; // non-UTC: date matches directly
-          } else {
-            int localMins = utcH*60 + utcM + (Storage::cfg.tzOffsetSec / 60);
-            if (localMins >= 0 && localMins < 1440) matchDay = d;
-            // if localMins >= 1440 the event is actually day d+1 — skip here, will match next iteration
-          }
-        }
-        // UTC events where UTC date = local date+1 (negative timezone, e.g. UTC event at 1am = prev local day)
-        if (matchDay < 0 && isUTC && strncmp(curDtStart, dateUTCnext[d], 8) == 0) {
-          int localMins = utcH*60 + utcM + (Storage::cfg.tzOffsetSec / 60);
-          if (localMins < 0) matchDay = d; // event is behind UTC, so local date is earlier
-        }
-      }
-
-      // Time of day, resolved once so recurring copies can reuse it.
       const bool isAllDay = (strlen(curDtStart) == 8);
-      int hh = utcH, mm = utcM;
-      if (!isAllDay && !isUTC && strlen(curDtStart) >= 13)
-        sscanf(curDtStart + 9, "%2d%2d", &hh, &mm);
-      int curDayShift = 0;
-      if (isUTC) {
-        const int total = hh*60 + mm + (Storage::cfg.tzOffsetSec/60);
-        if (total < 0)        curDayShift = -1;
-        else if (total >= 1440) curDayShift = 1;
-        const int localMins = ((total % 1440) + 1440) % 1440;
-        hh = localMins / 60; mm = localMins % 60;
+      const bool isUTC = (!isAllDay && strlen(curDtStart) >= 16 && curDtStart[15] == 'Z');
+
+      // Resolve the local date and time of this occurrence once, so every copy a
+      // rule generates reuses it. UTC events go through the system's timezone
+      // rules rather than one fixed offset: a July event and a December event do
+      // not share an offset, and converting both with today's put every event on
+      // the other side of a daylight-saving change an hour out.
+      char localDate[9] = {};
+      int hh = 0, mm = 0, curDayShift = 0;
+      if (isAllDay) {
+        snprintf(localDate, sizeof(localDate), "%.8s", curDtStart);
+      } else {
+        int y = 0, mo = 0, dd = 0;
+        sscanf(curDtStart, "%4d%2d%2dT%2d%2d", &y, &mo, &dd, &hh, &mm);
+        if (isUTC) {
+          int ly = y, lmo = mo, ld = dd, lh = hh, lm = mm, shift = 0;
+          if (utcToLocal(y, mo, dd, hh, mm, ly, lmo, ld, lh, lm, shift)) {
+            hh = lh; mm = lm; curDayShift = shift;
+            snprintf(localDate, sizeof(localDate), "%04d%02d%02d", ly, lmo, ld);
+          } else {
+            snprintf(localDate, sizeof(localDate), "%04d%02d%02d", y, mo, dd);
+          }
+        } else {
+          snprintf(localDate, sizeof(localDate), "%04d%02d%02d", y, mo, dd);
+        }
       }
+
+      int matchDay = -1; // which day 0-6 this event falls on, -1 = not in range
+      for (int d = 0; d < CAL_DAYS && matchDay < 0; d++)
+        if (!strncmp(localDate, dateDays[d], 8)) matchDay = d;
 
       auto addEvent = [&](int day) {
         if (day < 0 || day >= CAL_DAYS || _calStaged >= MAX_CAL_EVENTS) return;
@@ -1625,18 +1703,12 @@ void fetchCalendar() {
   // Build date strings for today through next 6 days (7 total)
   time_t now_t = time(nullptr);
   char dateDays[CAL_DAYS][9];
-  char dateUTCnext[CAL_DAYS][9];
 
   for (int d = 0; d < CAL_DAYS; d++) {
     time_t dt = now_t + (time_t)d * 86400;
     struct tm *lt2 = localtime(&dt);
     snprintf(dateDays[d], sizeof(dateDays[d]), "%04d%02d%02d",
       lt2->tm_year+1900, lt2->tm_mon+1, lt2->tm_mday);
-    // UTC "next day" that maps to this local day (for negative tz offsets)
-    time_t dt2 = dt + 86400;
-    struct tm *lt3 = localtime(&dt2);
-    snprintf(dateUTCnext[d], sizeof(dateUTCnext[d]), "%04d%02d%02d",
-      lt3->tm_year+1900, lt3->tm_mon+1, lt3->tm_mday);
   }
 
   Serial.printf("[Cal] fetching for %s (+6 days), %d feed(s)\n",
@@ -1657,7 +1729,7 @@ void fetchCalendar() {
     // Each feed can run its 20s deadline; reset between them so a slow first
     // calendar does not trip the task watchdog while the second is starting.
     esp_task_wdt_reset();
-    if (calFetchFeed(u, f, dateDays, dateUTCnext)) feedsOk++;
+    if (calFetchFeed(u, f, dateDays)) feedsOk++;
   }
 
   // Sort by dayOffset first, then startMinute within each day
