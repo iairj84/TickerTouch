@@ -1117,12 +1117,14 @@ static const int CAL_SERIES_SLOTS = 16;
 static CalSeriesTrace _calSeries[CAL_SERIES_SLOTS];
 static uint8_t _calSeriesCount = 0;
 
-static void seriesPush(const char *title, const char *dtstart, const char *rule) {
+static void seriesPush(const char *title, const char *dtstart,
+                       const char *rule, const char *exdate) {
   if (_calSeriesCount >= CAL_SERIES_SLOTS) return;
   CalSeriesTrace &e = _calSeries[_calSeriesCount++];
   strlcpy(e.title,   title,   sizeof(e.title));
   strlcpy(e.dtstart, dtstart, sizeof(e.dtstart));
   strlcpy(e.rule,    rule,    sizeof(e.rule));
+  strlcpy(e.exdate,  exdate ? exdate : "", sizeof(e.exdate));
 }
 
 int calSeriesCount() { return _calSeriesCount; }
@@ -1132,6 +1134,23 @@ const CalSeriesTrace *calSeriesAt(int i) {
 }
 
 static void calSeriesReset() { _calSeriesCount = 0; }
+
+// ── iCal line unfolding ─────────────────────────────────────────────────────
+// RFC 5545 folds any line longer than 75 characters by breaking it and prefixing
+// the next physical line with a single space. A long EXDATE list is folded, and
+// parsing the pieces separately truncated it, so skipped dates were missed and a
+// moved meeting kept appearing on its old day.
+static bool icalIsFold(const char *s) { return s[0] == ' ' || s[0] == '\t'; }
+
+static bool icalAppendFold(char *logical, int &len, int cap, const char *cont) {
+  const int add = (int)strlen(cont) - 1;      // drop the single leading space
+  if (add <= 0) return true;
+  if (len + add >= cap) return false;
+  memcpy(logical + len, cont + 1, add);
+  len += add;
+  logical[len] = '\0';
+  return true;
+}
 
 // ── Recurring events ─────────────────────────────────────────────────────────
 // An iCal feed ships a repeating event once, with an RRULE and a DTSTART in the
@@ -1388,6 +1407,9 @@ void fetchCalendar() {
 
   char lineBuf[256];
   int linePos = 0;
+  char logical[256];            // physical lines joined back together
+  int logicalLen = 0;
+  logical[0] = '\0';
   bool inEvent = false;
   char curTitle[64] = {};
   char curDtStart[32] = {};
@@ -1395,6 +1417,7 @@ void fetchCalendar() {
   char curExdate[160] = {};
   char curRecId[24] = {};       // RECURRENCE-ID: the date the instance came from
   char curStatus[12] = {};      // STATUS: CANCELLED, TENTATIVE, CONFIRMED
+  char curUid[40] = {};         // UID: stable identity of a series
   bool curIsOverride = false;   // this VEVENT edits one instance of a series
   uint8_t stagingCount = 0;
   static CalendarEvent staging[MAX_CAL_EVENTS]; // static — 50 events × ~100 bytes would overflow stack
@@ -1404,32 +1427,52 @@ void fetchCalendar() {
   // Where each edited instance came from: its title and the date it used to
   // occupy, so the master's copy of that day can be removed.
   static char    overTitle[MAX_CAL_EVENTS][64];
+  static char    overUid[MAX_CAL_EVENTS][40];
   static char    overDate[MAX_CAL_EVENTS][9];
+  static char    stagingUid[MAX_CAL_EVENTS][40];   // UID of the block an entry came from
   static uint8_t overCount = 0;
   memset(staging, 0, sizeof(staging));
   memset(stagingFlags, 0, sizeof(stagingFlags));
+  memset(stagingUid, 0, sizeof(stagingUid));
   overCount = 0;
   calSeriesReset();
   int totalBytes = 0;
 
-  auto processLine = [&]() {
+  // A block cut off mid-line (socket closed, byte cap) still ends the logical line.
+  auto flushPartial = [&]() {
+    if (linePos <= 0) return;
     lineBuf[linePos] = '\0';
+    strlcpy(logical, lineBuf, sizeof(logical));
+    logicalLen = linePos;
     linePos = 0;
-    char *l = lineBuf;
+  };
+
+  auto processLine = [&](char *l) {
 
     if (strcmp(l, "BEGIN:VEVENT") == 0) {
       inEvent = true; curTitle[0] = '\0'; curDtStart[0] = '\0';
       curRRule[0] = '\0'; curExdate[0] = '\0'; curRecId[0] = '\0';
-      curStatus[0] = '\0';
+      curStatus[0] = '\0'; curUid[0] = '\0';
       curIsOverride = false;
     } else if (strcmp(l, "END:VEVENT") == 0 && inEvent) {
       inEvent = false;
+
+      // Record where an edited instance came from before the title check: a moved
+      // occurrence has to be traceable even if the feed omits its SUMMARY.
+      if (curIsOverride && strlen(curRecId) >= 8 && overCount < MAX_CAL_EVENTS) {
+        strlcpy(overTitle[overCount], curTitle, sizeof(overTitle[0]));
+        strlcpy(overUid[overCount],   curUid,   sizeof(overUid[0]));
+        memcpy(overDate[overCount], curRecId, 8);
+        overDate[overCount][8] = '\0';
+        overCount++;
+      }
+
       if (!strlen(curTitle) || !strlen(curDtStart)) return;
 
       // Trace every block, including the ones dropped below, so /cal can answer
       // "why is this on screen" without access to the feed itself.
       debugPush(curTitle, curDtStart, curRecId, curStatus, curRRule[0] != '\0');
-      if (curRRule[0]) seriesPush(curTitle, curDtStart, curRRule);
+      if (curRRule[0]) seriesPush(curTitle, curDtStart, curRRule, curExdate);
 
       // An instance that was declined or removed arrives as a normal VEVENT
       // carrying STATUS:CANCELLED at its original slot. Showing it is exactly the
@@ -1478,6 +1521,7 @@ void fetchCalendar() {
       auto addEvent = [&](int day) {
         if (day < 0 || day >= CAL_DAYS || stagingCount >= MAX_CAL_EVENTS) return;
         stagingFlags[stagingCount] = curIsOverride ? 1 : 0;
+        strlcpy(stagingUid[stagingCount], curUid, sizeof(stagingUid[0]));
         CalendarEvent &e = staging[stagingCount++];
         strlcpy(e.title, curTitle, sizeof(e.title));
         e.dayOffset = day;
@@ -1507,12 +1551,6 @@ void fetchCalendar() {
         addEvent(matchDay);
       }
 
-      if (curIsOverride && strlen(curRecId) >= 8 && overCount < MAX_CAL_EVENTS) {
-        strlcpy(overTitle[overCount], curTitle, sizeof(overTitle[0]));
-        memcpy(overDate[overCount], curRecId, 8);
-        overDate[overCount][8] = '\0';
-        overCount++;
-      }
     } else if (inEvent) {
       if (strncmp(l, "SUMMARY", 7) == 0) {
         char *colon = strchr(l, ':');
@@ -1536,6 +1574,9 @@ void fetchCalendar() {
       } else if (strncmp(l, "STATUS", 6) == 0) {
         char *colon = strchr(l, ':');
         if (colon) strlcpy(curStatus, colon+1, sizeof(curStatus));
+      } else if (strncmp(l, "UID", 3) == 0) {
+        char *colon = strchr(l, ':');
+        if (colon) strlcpy(curUid, colon+1, sizeof(curUid));
       }
     }
   };
@@ -1553,13 +1594,21 @@ void fetchCalendar() {
       totalBytes++; got++;
       if (ch == '\n') {
         if (linePos > 0 && lineBuf[linePos-1] == '\r') linePos--;
-        processLine();
+        lineBuf[linePos] = '\0';
+        if (linePos > 0 && icalIsFold(lineBuf)) {
+          icalAppendFold(logical, logicalLen, (int)sizeof(logical), lineBuf);
+        } else {
+          if (logicalLen) processLine(logical);
+          strlcpy(logical, lineBuf, sizeof(logical));
+          logicalLen = linePos;
+        }
+        linePos = 0;
       } else if (linePos < (int)sizeof(lineBuf)-1) {
         lineBuf[linePos++] = ch;
       }
     }
     if (got == 0) {
-      if (!stream->connected()) { if (linePos > 0) processLine(); break; }
+      if (!stream->connected()) { flushPartial(); break; }
       vTaskDelay(1);
     } else if (totalBytes >= yieldAt) {
       yieldAt += 32768;
@@ -1567,7 +1616,7 @@ void fetchCalendar() {
       esp_task_wdt_reset(); // 540KB takes ~15s on slow connections
     }
   }
-  if (totalBytes >= MAX_CAL_BYTES && linePos > 0) processLine();
+  if (totalBytes >= MAX_CAL_BYTES) flushPartial();
 
   http.end();
   if (strncmp(calUrl, "https", 5) == 0) tls.stop(); else plain.stop();
@@ -1584,6 +1633,8 @@ void fetchCalendar() {
     staging[j+1] = key;
   }
 
+  if (logicalLen) processLine(logical);   // last block if the feed ends without a newline
+
   // Collapse the copies the feed implies: expansion adds the master's version of
   // every instance, and an edited instance arrives as its own VEVENT. Same title,
   // same day means one entry; if only one of them carries a RECURRENCE-ID, that
@@ -1598,7 +1649,11 @@ void fetchCalendar() {
     for (int i = 0; i < stagingCount; i++) {
       if (stagingFlags[i]) continue;
       for (int k = 0; k < overCount && !dead[i]; k++) {
-        if (strcmp(overTitle[k], staging[i].title) != 0) continue;
+        // Same series by UID (survives a rename) or by title.
+        const bool sameSeries =
+            (overUid[k][0] && !strcmp(overUid[k], stagingUid[i])) ||
+            (overTitle[k][0] && !strcmp(overTitle[k], staging[i].title));
+        if (!sameSeries) continue;
         for (int d = 0; d < CAL_DAYS; d++) {
           if (d == staging[i].dayOffset && !strncmp(dateDays[d], overDate[k], 8)) {
             dead[i] = 1;
@@ -1630,6 +1685,7 @@ void fetchCalendar() {
       if (kept != i) {
         staging[kept] = staging[i];
         stagingFlags[kept] = stagingFlags[i];
+        strlcpy(stagingUid[kept], stagingUid[i], sizeof(stagingUid[0]));
       }
       kept++;
     }

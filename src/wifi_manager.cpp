@@ -1035,7 +1035,13 @@ static void handleCalDebug() {
       h += e->dtstart;
       h += "</span><div class='k' style='margin-top:.25rem;word-break:break-all'>";
       h += e->rule;
-      h += "</div></div>";
+      h += "</div>";
+      if (e->exdate[0]) {
+        h += "<div class='k' style='margin-top:.15rem;word-break:break-all'>skips ";
+        h += e->exdate;
+        h += "</div>";
+      }
+      h += "</div>";
     }
   }
   h += "</div></body></html>";

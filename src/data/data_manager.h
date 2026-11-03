@@ -108,7 +108,8 @@ const CalDebugEvent *calDebugAt(int i);
 struct CalSeriesTrace {
   char title[40];
   char dtstart[24];
-  char rule[64];
+  char rule[72];
+  char exdate[72];   // dates the series explicitly skips
 };
 
 int calSeriesCount();
