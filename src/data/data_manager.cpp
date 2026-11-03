@@ -477,7 +477,7 @@ void fetchSports() {
     char url[200];
     snprintf(url, sizeof(url),
       "http://site.api.espn.com/apis/site/v2/sports/%s/scoreboard"
-      "?dates=%04d%02d%02d&limit=25",
+      "?dates=%04d%02d%02d&limit=50",   // 25 cut off a busy single league
       lg.path, lt->tm_year+1900, lt->tm_mon+1, lt->tm_mday);
 
     Serial.printf("[Sports] %s\n", lg.abbr);
@@ -488,7 +488,7 @@ void fetchSports() {
     // NOTE: do NOT free buf here — it is reused by the next league and freed once
     // after the loop. Freeing it here was a use-after-free + double-free.
     if (!http.begin(client, url)) { Serial.printf("[Sports] begin failed %s\n", lg.abbr); continue; }
-    http.setTimeout(8000);  // reduced from 10000
+    http.setTimeout(12000); // 50 games per league takes longer to stream
     http.useHTTP10(true);    // disables chunked transfer — body is clean bytes
     http.addHeader("User-Agent", "TickerTouch/1.0");
     int code = http.GET();
@@ -504,7 +504,7 @@ void fetchSports() {
     int bLen = 0;
     int n = 0;
     buf[0] = 0;
-    uint32_t deadline = millis() + 8000;  // reduced from 12000
+    uint32_t deadline = millis() + 12000;  // matches the HTTP timeout above
 
     // Initial fill — read first chunk quickly
     for (int i = 0; i < 30 && bLen < 200; i++) {
@@ -718,6 +718,13 @@ void fetchSports() {
     Serial.printf("[Sports] %s: %d games\n", lg.abbr, n);
     vTaskDelay(pdMS_TO_TICKS(200)); // let TCP stack release the socket
   }
+
+  // Truncation used to be invisible: the array filled and the remaining leagues
+  // were simply never requested, which reads as a broken feed rather than a full
+  // table. Say it out loud instead.
+  if (stagingCount >= MAX_SCORES)
+    Serial.printf("[Sports] capped at %d games - later leagues skipped\n",
+                  (int)MAX_SCORES);
 
   heap_caps_free(buf); // free once at end
 

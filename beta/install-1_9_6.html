@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>TickerTouch — Room For A Full Slate</title>
+    <style>
+        body { font-family: sans-serif; text-align: center; padding: 50px; }
+        button { padding: 15px 25px; font-size: 18px; cursor: pointer; }
+        .what { max-width: 580px; margin: 24px auto; color: #1e3a8a; background: #eff6ff;
+                border: 1px solid #93c5fd; border-radius: 8px; padding: 14px; text-align: left; }
+        .keep { max-width: 580px; margin: 24px auto; color: #14532d; background: #ecfdf5;
+                border: 1px solid #86efac; border-radius: 8px; padding: 14px; text-align: left; }
+        .note { max-width: 580px; margin: 24px auto; text-align: left; color: #333;
+                background: #f4f4f8; border: 1px solid #ddd; border-radius: 8px; padding: 14px; }
+        .fine { color: #666; font-size: 14px; }
+    </style>
+</head>
+<body>
+    <h1>TickerTouch — Room For A Full Slate</h1>
+    <p>Version 1.9.6 — beta. Stable is <a href="../">1.9.4</a>.</p>
+
+    <p class="what">
+        <strong>A busy multi-league day now fits.</strong> Three caps were in the way, and only
+        one of them was where you would look for it.<br><br>
+        <b>32 games total</b>, across every selected league, was the hard ceiling — and once it
+        filled, the remaining leagues were never even requested. That's now <b>64</b>.
+        <b>25 games per league</b> was ESPN's answer because that is what the request asked
+        for; it now asks for <b>50</b>. And the <b>ticker</b> cut the scoreboard off at 512
+        characters, about eight games, so a full slate looked truncated even once the data was
+        there; a segment now holds 3072 characters and the assembled line 8192.<br><br>
+        The per-league deadline went from 8&nbsp;s to 12&nbsp;s so a 50-game response is not cut
+        off mid-stream, and hitting the 64-game cap now prints a line instead of dropping
+        leagues in silence.
+    </p>
+
+    <p class="keep">
+        <strong>Keep your settings:</strong> the installer asks whether to erase the device.
+        <strong>Leave erase off</strong> — erasing wipes WiFi, city, leagues, both calendar URLs
+        and the icon choices.
+    </p>
+
+    <div class="note">
+        <strong>What to check after installing</strong>
+        <ul style="margin:8px 0 0 18px; padding:0; line-height:1.7">
+            <li>The Sports tab lists every game on a busy day, across leagues, without a cut.</li>
+            <li>The ticker's sports segment runs to the end of the slate rather than stopping mid-league.</li>
+            <li>Serial shows <code>[Sports] total=N</code> with N above 32 when the day warrants it.</li>
+            <li>No <code>capped at 64</code> line on a normal day.</li>
+        </ul>
+    </div>
+
+    <p class="fine">
+        This costs about 28&nbsp;KB of static RAM (64 score entries, larger ticker buffers) — the
+        build reports roughly 42% of the 327&nbsp;KB, with the ticker text itself coming from
+        PSRAM.
+    </p>
+
+    <script type="module" src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"></script>
+
+    <esp-web-install-button manifest="./manifest-1_9_6c.json">
+        <button slot="activate">Connect and Install</button>
+        <span slot="unsupported">Your browser does not support Web Serial — use Chrome or Edge on desktop.</span>
+        <span slot="not-allowed">Web Serial needs HTTPS (this page is) and a direct connection.</span>
+    </esp-web-install-button>
+
+    <p class="fine">Stable installer: <a href="../">iairj84.github.io/TickerTouch</a></p>
+</body>
+</html>

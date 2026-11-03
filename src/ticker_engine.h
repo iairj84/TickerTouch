@@ -32,7 +32,7 @@ enum TickerSegmentType : uint8_t {
 struct TickerSegment {
   TickerSegmentType type;
   bool              enabled;
-  char              text[512];    // pre-formatted, separator-padded
+  char              text[3072];   // pre-formatted; 40 games need ~2 KB of this
   uint32_t          lastUpdated;  // millis() when text was last set
 };
 

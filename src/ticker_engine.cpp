@@ -16,7 +16,7 @@ TickerScrollState scrollState;
 
 static bool   paused      = false;
 static bool   dirty       = false;
-static char   fullString[2048];
+static char   fullString[8192];   // all segments concatenated; sports alone can be 2 KB
 static uint32_t lastClockMin = 0xFFFF;
 
 // Track previous ready states — rebuild immediately when data first arrives

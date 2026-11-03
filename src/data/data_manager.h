@@ -55,7 +55,7 @@ struct WeatherData {
 };
 
 // ── Feed storage (simple fixed arrays) ────────────────────────────────────────
-#define MAX_SCORES  32
+#define MAX_SCORES  64        // a busy multi-league day runs 30-40 games
 #define MAX_STOCKS  20
 #define MAX_CRYPTO  10
 
