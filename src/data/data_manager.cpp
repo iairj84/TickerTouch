@@ -191,6 +191,34 @@ int32_t tzOffsetNow() {
   return (int32_t)diff;
 }
 
+// Local time needs a zone before anything can read it. On boot the only sources are
+// what was saved: a chosen zone (with its DST rules) or, failing that, the offset the
+// last lookup stored. Either is better than UTC, which is what localtime() reports
+// until something calls tzset().
+void applySavedTimezone() {
+  if (Storage::cfg.tzZone[0]) {
+    const char *posix = posixTzFor(Storage::cfg.tzZone);
+    if (posix) {
+      setenv("TZ", posix, 1);
+      tzset();
+      Serial.printf("[TZ] boot: saved zone %s -> %s\n", Storage::cfg.tzZone, posix);
+      return;
+    }
+  }
+  const long off = Storage::cfg.tzOffsetSec;
+  if (off == 0) return;               // never looked up: nothing to apply yet
+  // POSIX inverts the sign: two hours east of UTC is written "XXX-2".
+  char tzbuf[24];
+  const long hh = labs(off) / 3600;
+  const long mm = (labs(off) % 3600) / 60;
+  const char sign = off > 0 ? '-' : '+';
+  if (mm) snprintf(tzbuf, sizeof(tzbuf), "XXX%c%ld:%02ld", sign, hh, mm);
+  else    snprintf(tzbuf, sizeof(tzbuf), "XXX%c%ld", sign, hh);
+  setenv("TZ", tzbuf, 1);
+  tzset();
+  Serial.printf("[TZ] boot: saved offset %+lds -> %s\n", off, tzbuf);
+}
+
 void fetchTimezone() {
   char tzBuf[160] = {};
   char zone[48] = {};

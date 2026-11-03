@@ -104,6 +104,12 @@ extern uint8_t       calFinishedToday;
 // nothing before the clock is set, and never removes all-day entries.
 void pruneEndedCalEvents();
 
+// Put the saved timezone into the C library before anything reads localtime(). The
+// clock label and the night-dimming window both do, and until a zone is set they see
+// UTC - which is both a visibly wrong clock and a panel that dims itself for being
+// "past bedtime" when it is the middle of the afternoon.
+void applySavedTimezone();
+
 // ── Calendar parse trace (shown on /cal) ─────────────────────────────────────
 // The last few VEVENT blocks exactly as the feed sent them. A missing or phantom
 // entry can only be diagnosed from this: the feed URL exists only on the device.

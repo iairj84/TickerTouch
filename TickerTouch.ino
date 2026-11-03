@@ -118,6 +118,10 @@ void setup() {
   Serial.println(F("[Boot] start"));
 
   Storage::begin();
+  // Before the first paint and before the brightness check: both read localtime(),
+  // which stays UTC until a zone is installed. Without this the header shows UTC and,
+  // worse, the night window can match and dim the panel for the first seconds.
+  DataManager::applySavedTimezone();
 
   Display::begin();
   // Apply saved brightness (Display::begin sets it to 200; override with saved value)

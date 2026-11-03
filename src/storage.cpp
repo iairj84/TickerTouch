@@ -64,6 +64,9 @@ void load() {
   if (cfg.calIcon1 >= CALICON_COUNT) cfg.calIcon1 = CALICON_HOME;
   if (cfg.calIcon2 >= CALICON_COUNT) cfg.calIcon2 = CALICON_KEYBOARD;
   cfg.tabMask = prefs.getUChar("tabMask", 0b0111);
+  // Last known UTC offset, persisted so the clock and the night window are local
+  // from the first paint instead of waiting for the boot-time lookup to answer.
+  cfg.tzOffsetSec = prefs.getInt("tzOff", 0);
   prefs.getString("teamFilter", cfg.teamFilter, sizeof(cfg.teamFilter));
   prefs.getString("cfbConf", cfg.cfbConf, sizeof(cfg.cfbConf)); // Sports+Finance+Weather default
 }
@@ -103,6 +106,7 @@ void save() {
   prefs.putUChar("calIcon1", cfg.calIcon1);
   prefs.putUChar("calIcon2", cfg.calIcon2);
   prefs.putUChar("tabMask", cfg.tabMask);
+  prefs.putInt("tzOff", cfg.tzOffsetSec);
   prefs.putString("teamFilter", cfg.teamFilter);
   prefs.putString("cfbConf", cfg.cfbConf);
 }
