@@ -146,6 +146,42 @@ window.onload=doScan;
 </script></body></html>
 )HTML";
 
+// The setup page used to carry hard-coded defaults: NBA/NHL/MLB ticked, stocks
+// pre-filled with the sample list, and a theme list with nothing selected (so Dark
+// won). Posting it on a repeat visit therefore wrote those defaults over the saved
+// settings - which is why a WiFi re-save looked like a partial reset, and why
+// guarding the handler on "first setup" could not help: a missing SSID is exactly
+// what sends the board to this page. It is now filled in from what is saved, so
+// submitting it changes only what was actually edited.
+static String portalPage() {
+  String page(PORTAL_HTML);
+
+  page.replace("name=\"city\" placeholder=\"Portland\"",
+               String("name=\"city\" placeholder=\"Portland\" value=\"") +
+                   Storage::cfg.city + "\"");
+  page.replace("name=\"state\" placeholder=\"Oregon\"",
+               String("name=\"state\" placeholder=\"Oregon\" value=\"") +
+                   Storage::cfg.state + "\"");
+  page.replace("name=\"stocks\" value=\"SPY,AAPL,TSLA,NVDA\"",
+               String("name=\"stocks\" value=\"") + Storage::cfg.stocks + "\"");
+
+  // Theme: mark the saved option, since the static list has none selected.
+  const String open = String("<option value=\"") + String((int)Storage::cfg.theme) + "\">";
+  page.replace(open, open.substring(0, open.length() - 1) + " selected>");
+
+  // Leagues: drop the static ticks, then tick whichever are saved.
+  static const char *lgNames[] = {"nfl", "nba", "nhl", "mlb", "cfb", "mls", "epl",
+                                  "cbb", "wnba", "nascar", "f1", "indycar", "pga"};
+  for (int i = 0; i < 13; i++)
+    page.replace(String("name=\"") + lgNames[i] + "\" checked",
+                 String("name=\"") + lgNames[i] + "\"");
+  for (int i = 0; i < 13; i++)
+    if (Storage::cfg.sportsLeagues & (1u << i))
+      page.replace(String("name=\"") + lgNames[i] + "\"",
+                   String("name=\"") + lgNames[i] + "\" checked");
+  return page;
+}
+
 static const char SAVED_HTML[] PROGMEM = R"HTML(
 <!DOCTYPE html><html><head><meta charset="UTF-8">
 <style>body{font-family:sans-serif;background:#0f0f14;color:#e8e8f0;display:flex;align-items:center;justify-content:center;height:100vh;text-align:center}</style>
@@ -749,21 +785,23 @@ static void handleSettingsSave() {
 static String savedSSID, savedPass;
 static volatile bool credentialsSaved = false;
 
-static void handlePortalRoot() { server.send(200, "text/html", PORTAL_HTML); }
+static void handlePortalRoot() { server.send(200, "text/html", portalPage()); }
 
 static void handlePortalSave() {
   savedSSID = server.arg("ssid");
   savedPass = server.arg("pass");
 
   String city = server.arg("city");
-  if (city.length()) city.toCharArray(Storage::cfg.city, sizeof(Storage::cfg.city));
+  city.trim();
   String state = server.arg("state");
   state.trim();
+  // The form is pre-filled now, so "a city arrived" no longer means it changed. Only a
+  // different city should invalidate the coordinates; otherwise every WiFi re-save
+  // would force a geocode and blank the weather until it finished.
+  const bool cityChanged = city.length() && city != Storage::cfg.city;
+  if (city.length()) city.toCharArray(Storage::cfg.city, sizeof(Storage::cfg.city));
   if (state.length()) state.toCharArray(Storage::cfg.state, sizeof(Storage::cfg.state));
-  // Reset coords only when a city actually came with the form. On first run that is
-  // what makes geocoding start fresh, but a later re-save of WiFi carries no city and
-  // used to throw away coordinates that were perfectly good.
-  if (city.length()) { Storage::cfg.lat = 0.0f; Storage::cfg.lon = 0.0f; }
+  if (cityChanged) { Storage::cfg.lat = 0.0f; Storage::cfg.lon = 0.0f; }
 
   uint16_t sports = 0;
   if (server.arg("nfl").length()) sports |= (1<<0);
@@ -774,16 +812,10 @@ static void handlePortalSave() {
   if (server.arg("mls").length()) sports |= (1<<5);
   if (server.arg("epl").length()) sports |= (1<<6);
   if (server.arg("cbb").length()) sports |= (1<<7);
-  // The setup page's boxes are static defaults, not the saved selection: NBA, NHL and
-  // MLB arrive pre-ticked, everything else unticked. Applying them on a repeat visit
-  // therefore replaced whatever was chosen with those three - which is what made a
-  // plain WiFi re-save look like the leagues had been reset. Only a genuine first
-  // setup takes leagues from this page; a re-save leaves them alone.
-  Preferences wifiPrefs;
-  wifiPrefs.begin("tickertch_wifi", true);
-  const bool firstSetup = wifiPrefs.getString("ssid", "").isEmpty();
-  wifiPrefs.end();
-  if (firstSetup && sports) Storage::cfg.sportsLeagues = sports;
+  // Safe to store what the page posted: it was rendered from the saved config, so an
+  // untouched form submits the same bits back. "Nothing ticked" is still ignored,
+  // because the loader coerces an empty mask to the defaults anyway.
+  if (sports) Storage::cfg.sportsLeagues = sports;
 
   String stocks = server.arg("stocks");
   if (stocks.length()) stocks.toCharArray(Storage::cfg.stocks, sizeof(Storage::cfg.stocks));
