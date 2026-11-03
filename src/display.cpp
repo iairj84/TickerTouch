@@ -1,6 +1,7 @@
 #include "touch.h"
 #include "display.h"
 #include "screensaver.h"
+#include "storage.h"
 
 namespace Display {
 
@@ -21,6 +22,37 @@ void setBrightness(uint8_t v) { ledcWrite(LCD_BL, (4095UL*v)/255); }
 #else
 void setBrightness(uint8_t v) { ledcWrite(BL_CH, (4095UL*v)/255); }
 #endif
+
+// Night dimming. The panel is the brightest thing on a desk after dark, and the
+// brightness slider only ever held one level. This applies a second, lower level
+// during a window of the day. Re-evaluated on a slow timer and written only when
+// the level actually changes, so it costs nothing while nothing is happening.
+void tickAutoBrightness() {
+  static uint32_t lastCheck = 0;
+  static int      applied   = -1;
+  const uint32_t now = millis();
+  if (lastCheck && (now - lastCheck) < 20000) return;
+  lastCheck = now;
+
+  int target = Storage::cfg.brightness;
+  if (Storage::cfg.nightDim) {
+    const time_t t = time(nullptr);
+    if (t > 100000) {                      // ignore the clock until SNTP lands
+      struct tm lt;
+      localtime_r(&t, &lt);
+      const int mins = lt.tm_hour * 60 + lt.tm_min;
+      const int from = (int)Storage::cfg.nightFrom;
+      const int to   = (int)Storage::cfg.nightTo;
+      const bool inWindow = (from <= to) ? (mins >= from && mins < to)
+                                         : (mins >= from || mins < to);
+      if (inWindow) target = Storage::cfg.nightLevel;
+    }
+  }
+  if (target != applied) {
+    applied = target;
+    setBrightness((uint8_t)target);
+  }
+}
 
 void begin() {
 #if ESP_ARDUINO_VERSION_MAJOR >= 3

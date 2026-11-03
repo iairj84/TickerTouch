@@ -96,6 +96,9 @@ static lv_obj_t* makeCard(lv_obj_t *parent, int32_t w, int32_t h) {
 // Clock update timer
 // ─────────────────────────────────────────────────────────────────────────────
 static void clockTimerCb(lv_timer_t *timer) {
+  // This doubles as the slow housekeeping tick: a 10s cadence is plenty for a
+  // night-dimming boundary, and tickAutoBrightness() does its own throttling.
+  Display::tickAutoBrightness();
   if (!clockLabel) return;
   time_t now = time(nullptr);
   // SNTP delivers asynchronously — until it does, time(nullptr) is a few seconds

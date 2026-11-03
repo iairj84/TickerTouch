@@ -19,6 +19,9 @@ extern Arduino_NV3041A *panel;
 extern Arduino_NV3041A *gfx;
 
 void setBrightness(uint8_t value);
+// Applies the night-dimming window. Cheap and self-throttling, so it can be
+// called from any loop; it only writes the backlight when the level changes.
+void tickAutoBrightness();
 void begin();
 void initLvgl();
 

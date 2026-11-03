@@ -432,6 +432,51 @@ static String settingsPage() {
   }
   h += "</div></div>";
 
+  // Night dimming
+  h += "<div class='section'><strong>Night brightness</strong>";
+  h += "<label class='ck'><input type='checkbox' name='nightDim'";
+  if (Storage::cfg.nightDim) h += " checked";
+  h += "> Dim the screen between these times</label>";
+  {
+    char from[6], to[6];
+    snprintf(from, sizeof(from), "%02u:%02u", Storage::cfg.nightFrom / 60, Storage::cfg.nightFrom % 60);
+    snprintf(to,   sizeof(to),   "%02u:%02u", Storage::cfg.nightTo   / 60, Storage::cfg.nightTo   % 60);
+    h += "<div style='display:flex;gap:8px;margin-top:8px'>";
+    h += "<div style='flex:1'><label>From</label><input type='time' name='night_from' value='";
+    h += from; h += "'></div>";
+    h += "<div style='flex:1'><label>To</label><input type='time' name='night_to' value='";
+    h += to; h += "'></div></div>";
+  }
+  h += "<label style='margin-top:8px'>Dim level (5-255)</label>";
+  h += "<input type='number' name='night_level' min='5' max='255' value='";
+  h += Storage::cfg.nightLevel;
+  h += "'>";
+  h += "<small style='color:#888'>The bright level is the slider on the device's Display tab. "
+       "A window that runs past midnight is normal (22:00 to 07:00).</small>";
+  h += "</div>";
+
+  // Backup — an erase is the documented way out of a bad flash, and it wipes every
+  // setting including both secret calendar URLs. This makes that recoverable.
+  h += "<div class='section'><strong>Backup</strong>";
+  h += "<a href='/settings.json' download='tickertouch-settings.json' "
+       "style='display:inline-block;padding:.55rem .9rem;border:1px solid #2a2a3a;border-radius:8px;"
+       "color:#6366f1;text-decoration:none;font-size:.9rem'>Download settings</a>";
+  h += "<label style='margin-top:10px'>Restore from a file</label>";
+  h += "<input type='file' id='restoreFile' accept='.json,application/json'>";
+  h += "<button class='btn' type='button' style='margin-top:.5rem;background:#374151' "
+       "id='restoreBtn'>Upload and restore</button>";
+  h += "<small id='restoreMsg' style='display:block;color:#888;margin-top:.4rem'></small>";
+  h += "<small style='color:#888'>The file holds your WiFi-independent settings - calendar URLs included. "
+       "Keep it private.</small>";
+  h += "<script>document.getElementById('restoreBtn').onclick=async function(){"
+       "var f=document.getElementById('restoreFile').files[0];"
+       "var m=document.getElementById('restoreMsg');"
+       "if(!f){m.textContent='Choose a file first.';return;}"
+       "m.textContent='Restoring...';";
+  h += "try{var r=await fetch('/restore',{method:'POST',headers:{'Content-Type':'application/json'},body:await f.text()});"
+       "m.textContent=await r.text();}catch(e){m.textContent='Failed: '+e;}};</script>";
+  h += "</div>";
+
   // Screensaver photo set — lives on its own page because it uploads files
   h += "<div class='section'><strong>Screensaver</strong>"
        "<a href='/images' style='display:inline-block;margin-top:.6rem;padding:.55rem .9rem;"
@@ -455,6 +500,8 @@ static String settingsPage() {
   h += "</div></body></html>";
   return h;
 }
+
+static uint16_t parseHm(const String &s, uint16_t fallback);
 
 static void handleSettingsGet() {
   server.send(200, "text/html", settingsPage());
@@ -571,6 +618,20 @@ static void handleSettingsSave() {
     String tz = server.arg("tzZone");
     tz.trim();
     tz.toCharArray(Storage::cfg.tzZone, sizeof(Storage::cfg.tzZone));
+  }
+
+  // Night dimming. An unchecked checkbox sends nothing, so its absence is the
+  // "off" state rather than a missing value.
+  Storage::cfg.nightDim = server.hasArg("nightDim");
+  if (server.hasArg("night_from"))
+    Storage::cfg.nightFrom = parseHm(server.arg("night_from"), Storage::cfg.nightFrom);
+  if (server.hasArg("night_to"))
+    Storage::cfg.nightTo = parseHm(server.arg("night_to"), Storage::cfg.nightTo);
+  if (server.hasArg("night_level")) {
+    long v = server.arg("night_level").toInt();
+    if (v < 5)   v = 5;
+    if (v > 255) v = 255;
+    Storage::cfg.nightLevel = (uint8_t)v;
   }
 
   // Save everything to NVS
@@ -1152,6 +1213,120 @@ static void handleCalDebug() {
   server.send(200, "text/html", h);
 }
 
+// ── Settings backup / restore ────────────────────────────────────────────────
+// "HH:MM" -> minutes from midnight, falling back to the current value.
+static uint16_t parseHm(const String &s, uint16_t fallback) {
+  const int c = s.indexOf(':');
+  if (c < 0) return fallback;
+  const int hh = s.substring(0, c).toInt();
+  const int mm = s.substring(c + 1).toInt();
+  if (hh < 0 || hh > 23 || mm < 0 || mm > 59) return fallback;
+  return (uint16_t)(hh * 60 + mm);
+}
+
+static void handleSettingsBackup() {
+  StaticJsonDocument<2048> d;
+  UserConfig &c = Storage::cfg;
+  d["app"]     = "TickerTouch";
+  d["version"] = FW_VERSION;
+  d["theme"]   = c.theme;
+  d["tzZone"]  = c.tzZone;
+  d["brightness"]  = c.brightness;
+  d["nightDim"]    = c.nightDim;
+  d["nightLevel"]  = c.nightLevel;
+  d["nightFrom"]   = c.nightFrom;
+  d["nightTo"]     = c.nightTo;
+  d["clock24h"]    = c.clock24h;
+  d["saverSec"]    = c.saverSec;
+  d["tickerSpeed"] = c.tickerSpeed;
+  d["tabMask"]     = c.tabMask;
+  d["sportsLeagues"] = c.sportsLeagues;
+  d["teamFilter"]  = c.teamFilter;
+  d["cfbConf"]     = c.cfbConf;
+  d["stocks"]      = c.stocks;
+  d["crypto"]      = c.crypto;
+  d["finnhub"]     = c.finnhubKey;
+  d["city"]        = c.city;
+  d["state"]       = c.state;
+  d["lat"]         = c.lat;
+  d["lon"]         = c.lon;
+  d["weatherCityCount"] = c.weatherCityCount;
+  JsonArray ex = d.createNestedArray("extraCities");
+  for (int i = 0; i < 2; i++) {
+    JsonObject o = ex.createNestedObject();
+    o["city"]  = c.extraCities[i].city;
+    o["state"] = c.extraCities[i].state;
+    o["lat"]   = c.extraCities[i].lat;
+    o["lon"]   = c.extraCities[i].lon;
+  }
+  d["icalUrl"]  = c.icalUrl;
+  d["icalUrl2"] = c.icalUrl2;
+  d["calIcon1"] = c.calIcon1;
+  d["calIcon2"] = c.calIcon2;
+
+  String out;
+  serializeJsonPretty(d, out);
+  server.sendHeader("Content-Disposition", "attachment; filename=\"tickertouch-settings.json\"");
+  server.send(200, "application/json", out);
+}
+
+static void handleSettingsRestore() {
+  const String body = server.arg("plain");
+  if (body.length() < 2) { server.send(400, "text/plain", "No file contents received."); return; }
+  StaticJsonDocument<3072> d;
+  const DeserializationError err = deserializeJson(d, body);
+  if (err) {
+    String m = "Could not read that file: ";
+    m += err.c_str();
+    server.send(400, "text/plain", m);
+    return;
+  }
+  if (!d.containsKey("theme") || !d.containsKey("city")) {
+    server.send(400, "text/plain", "That does not look like a TickerTouch settings file.");
+    return;
+  }
+
+  UserConfig &c = Storage::cfg;
+  c.theme        = (uint8_t)(d["theme"] | (int)c.theme);
+  strlcpy(c.tzZone,   d["tzZone"] | "", sizeof(c.tzZone));
+  c.brightness   = (uint8_t)(d["brightness"] | (int)c.brightness);
+  c.nightDim     = d["nightDim"] | c.nightDim;
+  c.nightLevel   = (uint8_t)(d["nightLevel"] | (int)c.nightLevel);
+  c.nightFrom    = (uint16_t)(d["nightFrom"] | (int)c.nightFrom);
+  c.nightTo      = (uint16_t)(d["nightTo"] | (int)c.nightTo);
+  c.clock24h     = d["clock24h"] | c.clock24h;
+  c.saverSec     = (uint32_t)(d["saverSec"] | (int)c.saverSec);
+  c.tickerSpeed  = (uint8_t)(d["tickerSpeed"] | (int)c.tickerSpeed);
+  c.tabMask      = (uint8_t)(d["tabMask"] | (int)c.tabMask);
+  c.sportsLeagues= (uint16_t)(d["sportsLeagues"] | (int)c.sportsLeagues);
+  strlcpy(c.teamFilter, d["teamFilter"] | "", sizeof(c.teamFilter));
+  strlcpy(c.cfbConf,    d["cfbConf"] | "",    sizeof(c.cfbConf));
+  strlcpy(c.stocks,     d["stocks"] | c.stocks, sizeof(c.stocks));
+  strlcpy(c.crypto,     d["crypto"] | c.crypto, sizeof(c.crypto));
+  strlcpy(c.finnhubKey, d["finnhub"] | "", sizeof(c.finnhubKey));
+  strlcpy(c.city,       d["city"] | c.city, sizeof(c.city));
+  strlcpy(c.state,      d["state"] | "", sizeof(c.state));
+  c.lat = d["lat"] | c.lat;
+  c.lon = d["lon"] | c.lon;
+  c.weatherCityCount = (uint8_t)(d["weatherCityCount"] | (int)c.weatherCityCount);
+  JsonArray ex = d["extraCities"];
+  if (!ex.isNull()) {
+    for (int i = 0; i < 2 && i < (int)ex.size(); i++) {
+      strlcpy(c.extraCities[i].city,  ex[i]["city"]  | "", sizeof(c.extraCities[i].city));
+      strlcpy(c.extraCities[i].state, ex[i]["state"] | "", sizeof(c.extraCities[i].state));
+      c.extraCities[i].lat = ex[i]["lat"] | 0.0f;
+      c.extraCities[i].lon = ex[i]["lon"] | 0.0f;
+    }
+  }
+  strlcpy(c.icalUrl,  d["icalUrl"]  | "", sizeof(c.icalUrl));
+  strlcpy(c.icalUrl2, d["icalUrl2"] | "", sizeof(c.icalUrl2));
+  c.calIcon1 = (uint8_t)(d["calIcon1"] | (int)c.calIcon1);
+  c.calIcon2 = (uint8_t)(d["calIcon2"] | (int)c.calIcon2);
+
+  Storage::save();
+  server.send(200, "text/plain", "Settings restored. Restart the device from this page to apply them.");
+}
+
 static void handleNotFound() {
   server.sendHeader("Location", "http://192.168.4.1", true);
   server.send(302, "text/plain", "Redirect");
@@ -1223,6 +1398,8 @@ void startSettingsServer() {
   server.on("/img/clear",  HTTP_POST, handleImagesClear);
   server.on("/diag",       HTTP_GET,  handleDiagGet);
   server.on("/cal",        HTTP_GET,  handleCalDebug);
+  server.on("/settings.json", HTTP_GET, handleSettingsBackup);
+  server.on("/restore",       HTTP_POST, handleSettingsRestore);
   server.on("/restart", HTTP_POST, [](){
     server.send(200, "text/plain", "Restarting...");
     delay(500);

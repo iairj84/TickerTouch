@@ -2,7 +2,7 @@
 <html>
 <head>
     <meta charset="utf-8">
-    <title>TickerTouch — Calendars Outside Your Timezone</title>
+    <title>TickerTouch — Backup and Night Dimming</title>
     <style>
         body { font-family: sans-serif; text-align: center; padding: 50px; }
         button { padding: 15px 25px; font-size: 18px; cursor: pointer; }
@@ -16,46 +16,45 @@
     </style>
 </head>
 <body>
-    <h1>TickerTouch — Calendars Outside Your Timezone</h1>
-    <p>Version 1.7.2 — this is <strong>not</strong> the default firmware.</p>
+    <h1>TickerTouch — Backup and Night Dimming</h1>
+    <p>Version 1.8.0 — this is <strong>not</strong> the default firmware.</p>
 
     <p class="warn">
-        An event scheduled by someone in another timezone arrives stamped with that zone. The panel
-        was converting those using a short fixed list of zones, and anything not on the list was
-        silently treated as local time — so exactly the entries created by people elsewhere came
-        out shifted, while everything else stayed correct.<br><br>
-        The feed now describes its own zones. Calendar files carry a <code>VTIMEZONE</code> block
-        for every zone they use, with the real offsets and the daylight-saving dates, and that is
-        now what the conversion uses. A zone the firmware has never heard of — a company-specific
-        one, a Windows name, a half-hour offset — converts correctly because the feed defines it.
-        The built-in list is still there for feeds that name a zone but ship no block.
+        <strong>Backup.</strong> Settings can now be downloaded as a single JSON file and restored
+        later. That removes the standing risk in every install page: erasing the device wipes the
+        WiFi credentials, city, leagues, both calendar URLs and the icon choices, and until now
+        there was no way back except retyping them.<br><br>
+        <strong>Night brightness.</strong> A second, dimmer level for a window of the day — by
+        default 22:00 to 07:00 — with its own level. The normal brightness slider is unchanged;
+        the dim level simply takes over inside the window.
     </p>
 
     <p class="keep">
         <strong>Keep your settings:</strong> this installer asks whether to erase the device
-        before flashing. <strong>Leave erase off</strong> — erasing wipes the WiFi
-        credentials, city and league selection, both calendar URLs and the icon choices.
+        before flashing. <strong>Leave erase off</strong> — or download a backup from the settings
+        page afterwards and keep it somewhere private, since the file contains your secret
+        calendar URLs.
     </p>
 
     <div class="note">
         <strong>What to check after installing</strong>
         <ul style="margin:8px 0 0 18px; padding:0; line-height:1.7">
-            <li>The work calendar's out-of-zone meetings should now match your phone.</li>
-            <li>Entries you created yourself should not move.</li>
-            <li>If anything is still out, open <code>/cal</code> and read the <b>zone</b> on that block.</li>
+            <li>Settings now has a <b>Night brightness</b> section and a <b>Backup</b> section.</li>
+            <li>Download the file, then upload it back — it should report that settings were restored.</li>
+            <li>Set the night window to a minute or two in the future to watch the panel dim.</li>
+            <li>The calendar, stocks and sports sections should be exactly as they were.</li>
         </ul>
-        An unknown zone is left exactly as the feed wrote it rather than guessed at, so a wrong
-        entry is now visible on <code>/cal</code> rather than hidden behind an assumed offset.
     </div>
 
     <p class="fine">
-        <code>/diag</code> still reports the panel's own zone and offset, which is a separate
-        setting under Display &rarr; Timezone if the IP lookup ever gets it wrong.
+        Night dimming is evaluated on the device clock, so it follows the timezone the panel is
+        using — check <code>/diag</code> if the window fires at the wrong hour. A window that runs
+        past midnight is handled, which is the normal case.
     </p>
 
     <script type="module" src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"></script>
 
-    <esp-web-install-button manifest="./manifest-1_7_2c.json">
+    <esp-web-install-button manifest="./manifest-1_8_0c.json">
         <button slot="activate">Connect and Install</button>
         <span slot="unsupported">Your browser does not support Web Serial — use Chrome or Edge on desktop.</span>
         <span slot="not-allowed">Web Serial needs HTTPS (this page is) and a direct connection.</span>

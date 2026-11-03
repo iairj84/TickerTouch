@@ -19,6 +19,10 @@ void load() {
   if (cfg.sportsLeagues == 0) cfg.sportsLeagues = 0b00001111;
   cfg.tickerSpeed  = prefs.getUChar("tspeed", 2);
   cfg.brightness   = prefs.getUChar("brightness", 200);
+  cfg.nightDim     = prefs.getBool("nightDim", false);
+  cfg.nightLevel   = prefs.getUChar("nightLvl", 40);
+  cfg.nightFrom    = prefs.getUShort("nightFrom", 22 * 60);
+  cfg.nightTo      = prefs.getUShort("nightTo",    7 * 60);
   cfg.clock24h     = prefs.getBool("clock24h", false);
   cfg.saverSec     = prefs.getUInt("saverSec", 600);
 
@@ -71,6 +75,10 @@ void save() {
   prefs.putUInt(NVS_KEY_SPORTS, cfg.sportsLeagues);
   prefs.putUChar("tspeed", cfg.tickerSpeed);
   prefs.putUChar("brightness", cfg.brightness);
+  prefs.putBool("nightDim", cfg.nightDim);
+  prefs.putUChar("nightLvl", cfg.nightLevel);
+  prefs.putUShort("nightFrom", cfg.nightFrom);
+  prefs.putUShort("nightTo", cfg.nightTo);
   prefs.putBool("clock24h", cfg.clock24h);
   prefs.putUInt("saverSec", cfg.saverSec);
   prefs.putString(NVS_KEY_STOCKS, cfg.stocks);

@@ -49,6 +49,15 @@ struct UserConfig {
   uint8_t tickerSpeed = 2;
   uint8_t brightness  = 200;  // 0-255, default full
 
+  // Night dimming: a second, lower level for a window of the day. Times are
+  // minutes from midnight so the test is one integer comparison, and the window
+  // is allowed to wrap past midnight (22:00 -> 07:00) because that is the normal
+  // case for a desk device.
+  bool     nightDim   = false;
+  uint8_t  nightLevel = 40;
+  uint16_t nightFrom  = 22 * 60;
+  uint16_t nightTo    = 7  * 60;
+
   // 24-hour clock
   bool clock24h = false;
 
