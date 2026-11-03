@@ -1110,6 +1110,29 @@ const CalDebugEvent *calDebugAt(int i) {
   return &_calDebug[(oldest + i) % CAL_DEBUG_SLOTS];
 }
 
+// ── Calendar series trace ───────────────────────────────────────────────────
+// Separate from the ring buffer: a monthly meeting's master block can sit hundreds
+// of events back in the feed, so the rule text has to be kept for every series.
+static const int CAL_SERIES_SLOTS = 16;
+static CalSeriesTrace _calSeries[CAL_SERIES_SLOTS];
+static uint8_t _calSeriesCount = 0;
+
+static void seriesPush(const char *title, const char *dtstart, const char *rule) {
+  if (_calSeriesCount >= CAL_SERIES_SLOTS) return;
+  CalSeriesTrace &e = _calSeries[_calSeriesCount++];
+  strlcpy(e.title,   title,   sizeof(e.title));
+  strlcpy(e.dtstart, dtstart, sizeof(e.dtstart));
+  strlcpy(e.rule,    rule,    sizeof(e.rule));
+}
+
+int calSeriesCount() { return _calSeriesCount; }
+
+const CalSeriesTrace *calSeriesAt(int i) {
+  return (i >= 0 && i < _calSeriesCount) ? &_calSeries[i] : nullptr;
+}
+
+static void calSeriesReset() { _calSeriesCount = 0; }
+
 // ── Recurring events ─────────────────────────────────────────────────────────
 // An iCal feed ships a repeating event once, with an RRULE and a DTSTART in the
 // past. Reading DTSTART alone therefore drops a daily 11:30 lunch from every day
@@ -1137,22 +1160,76 @@ static void ymdOf(const char *s, int &y, int &m, int &d) {
   d = (s[6]-'0')*10 + (s[7]-'0');
 }
 
-// "MO,WE,FR" -> bitmask (bit 0 = Sunday). 0 means no BYDAY was given.
-static uint8_t byDayMask(const char *v, int len) {
-  uint8_t mask = 0;
-  for (int i = 0; i + 1 < len; i++) {
-    const char a = v[i], b = v[i+1];
-    int wd = -1;
-    if      (a=='M' && b=='O') wd = 1;
-    else if (a=='T' && b=='U') wd = 2;
-    else if (a=='W' && b=='E') wd = 3;
-    else if (a=='T' && b=='H') wd = 4;
-    else if (a=='F' && b=='R') wd = 5;
-    else if (a=='S' && b=='A') wd = 6;
-    else if (a=='S' && b=='U') wd = 0;
-    if (wd >= 0) { mask |= (uint8_t)(1u << wd); i++; }
+// BYDAY carries both weekdays and ordinals: "MO,WE" is every Monday and
+// Wednesday, "2TU" is the second Tuesday and "-1FR" the last Friday. Dropping the
+// ordinal matched every Tuesday, which put a monthly meeting on the wrong weeks.
+struct ByDayRule { int8_t wd; int8_t ord; };   // ord 0 = "any"
+
+static int weekdayLetterPair(char a, char b) {
+  if (a == 'M' && b == 'O') return 1;
+  if (a == 'T' && b == 'U') return 2;
+  if (a == 'W' && b == 'E') return 3;
+  if (a == 'T' && b == 'H') return 4;
+  if (a == 'F' && b == 'R') return 5;
+  if (a == 'S' && b == 'A') return 6;
+  if (a == 'S' && b == 'U') return 0;
+  return -1;
+}
+
+static int byDayParse(const char *v, int len, ByDayRule *out, int maxOut) {
+  int n = 0, i = 0;
+  while (i < len && n < maxOut) {
+    if (v[i] == ',' || v[i] == ' ') { i++; continue; }
+    int ord = 0, sign = 1;
+    if (v[i] == '+' || v[i] == '-') { if (v[i] == '-') sign = -1; i++; }
+    bool digits = false;
+    while (i < len && v[i] >= '0' && v[i] <= '9') { ord = ord * 10 + (v[i] - '0'); i++; digits = true; }
+    if (digits) ord *= sign;
+    if (i + 1 < len) {
+      const int wd = weekdayLetterPair(v[i], v[i + 1]);
+      if (wd >= 0) {
+        out[n].wd = (int8_t)wd;
+        out[n].ord = digits ? (int8_t)ord : 0;
+        n++;
+        i += 2;
+        continue;
+      }
+    }
+    i++;
   }
-  return mask;
+  return n;
+}
+
+static int daysInMonth(int y, int m) {
+  int ny = y, nm = m + 1;
+  if (nm > 12) { nm = 1; ny++; }
+  return (int)(civilDays(ny, nm, 1) - civilDays(y, m, 1));
+}
+
+// Does any entry name today's weekday, ignoring ordinals?
+static bool byDayPlain(const ByDayRule *bd, int n, int wd) {
+  for (int i = 0; i < n; i++) if (bd[i].wd == wd) return true;
+  return false;
+}
+
+// Does any entry name today's weekday *and* the right occurrence of it?
+static bool byDayInMonth(const ByDayRule *bd, int n, int y, int m, int d) {
+  const int wd = weekdayOf(civilDays(y, m, d));
+  for (int i = 0; i < n; i++) {
+    if (bd[i].wd != wd) continue;
+    if (bd[i].ord == 0) return true;
+    if (bd[i].ord > 0) {
+      int idx = 0;
+      for (int dd = 1; dd <= d; dd++) if (weekdayOf(civilDays(y, m, dd)) == wd) idx++;
+      if (idx == bd[i].ord) return true;
+    } else {
+      int back = 0;
+      const int total = daysInMonth(y, m);
+      for (int dd = total; dd >= d; dd--) if (weekdayOf(civilDays(y, m, dd)) == wd) back++;
+      if (back == -bd[i].ord) return true;
+    }
+  }
+  return false;
 }
 
 static bool recurMatches(const char *rule, const char *dtstart, int dayShift,
@@ -1174,7 +1251,8 @@ static bool recurMatches(const char *rule, const char *dtstart, int dayShift,
 
   enum { FREQ_NONE, FREQ_DAILY, FREQ_WEEKLY, FREQ_MONTHLY, FREQ_YEARLY };
   int freq = FREQ_NONE, interval = 1, count = 0;
-  uint8_t byday = 0;
+  ByDayRule bd[8];
+  int bdCount = 0;
   uint32_t until = 0;
 
   const char *s = rule;
@@ -1197,7 +1275,7 @@ static bool recurMatches(const char *rule, const char *dtstart, int dayShift,
     } else if (klen == 5 && !strncmp(s, "UNTIL", 5)) {
       int uy, um, ud; ymdOf(vb, uy, um, ud); if (uy) until = civilDays(uy, um, ud);
     } else if (klen == 5 && !strncmp(s, "BYDAY", 5)) {
-      byday = byDayMask(vb, vlen);
+      bdCount = byDayParse(vb, vlen, bd, 8);
     }
     if (!ve) break;
     s = ve + 1;
@@ -1224,18 +1302,18 @@ static bool recurMatches(const char *rule, const char *dtstart, int dayShift,
     case FREQ_WEEKLY: {
       const uint32_t weeks = (dToday - dMaster) / 7;
       if (weeks % (uint32_t)interval) return false;
-      hit = byday ? (byday & (1u << weekdayOf(dToday))) != 0
-                  : weekdayOf(dToday) == weekdayOf(dMaster);
+      hit = bdCount ? byDayPlain(bd, bdCount, weekdayOf(dToday))
+                    : weekdayOf(dToday) == weekdayOf(dMaster);
       break;
     }
     case FREQ_MONTHLY:
       if (mdiff < 0 || (mdiff % interval)) return false;
-      hit = byday ? (byday & (1u << weekdayOf(dToday))) != 0 : (td == md);
+      hit = bdCount ? byDayInMonth(bd, bdCount, ty, tm, td) : (td == md);
       break;
     case FREQ_YEARLY:
       if (ydiff < 0 || (ydiff % interval)) return false;
       hit = (tm == mm) &&
-            (byday ? (byday & (1u << weekdayOf(dToday))) != 0 : (td == md));
+            (bdCount ? byDayPlain(bd, bdCount, weekdayOf(dToday)) : (td == md));
       break;
     default:
       return false;
@@ -1331,6 +1409,7 @@ void fetchCalendar() {
   memset(staging, 0, sizeof(staging));
   memset(stagingFlags, 0, sizeof(stagingFlags));
   overCount = 0;
+  calSeriesReset();
   int totalBytes = 0;
 
   auto processLine = [&]() {
@@ -1350,6 +1429,7 @@ void fetchCalendar() {
       // Trace every block, including the ones dropped below, so /cal can answer
       // "why is this on screen" without access to the feed itself.
       debugPush(curTitle, curDtStart, curRecId, curStatus, curRRule[0] != '\0');
+      if (curRRule[0]) seriesPush(curTitle, curDtStart, curRRule);
 
       // An instance that was declined or removed arrives as a normal VEVENT
       // carrying STATUS:CANCELLED at its original slot. Showing it is exactly the

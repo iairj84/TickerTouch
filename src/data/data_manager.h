@@ -102,6 +102,18 @@ struct CalDebugEvent {
 int calDebugCount();
 const CalDebugEvent *calDebugAt(int i);
 
+// Every block that carried a repeat rule, with the rule text. A monthly series
+// whose master sits months back never appears in the last-N trace, and the rule
+// is what decides whether an occurrence lands on a given day.
+struct CalSeriesTrace {
+  char title[40];
+  char dtstart[24];
+  char rule[64];
+};
+
+int calSeriesCount();
+const CalSeriesTrace *calSeriesAt(int i);
+
 extern bool        scoresReady;
 extern bool        stocksReady;
 extern bool        cryptoReady;

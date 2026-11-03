@@ -1022,6 +1022,22 @@ static void handleCalDebug() {
     if (e->hasRule)    h += " &middot; <span class='k'>repeats</span>";
     h += "</div>";
   }
+  const int nSeries = DataManager::calSeriesCount();
+  if (nSeries) {
+    h += "<h1 style='font-size:1rem;margin:1.4rem 0 .1rem'>Repeating series</h1>"
+         "<p class='sub'>Every block that carried a rule, with the rule text.</p>";
+    for (int i = 0; i < nSeries; i++) {
+      const DataManager::CalSeriesTrace *e = DataManager::calSeriesAt(i);
+      if (!e) continue;
+      h += "<div class='ev'><b>";
+      h += e->title;
+      h += "</b><span class='k'>starts</span> <span class='v'>";
+      h += e->dtstart;
+      h += "</span><div class='k' style='margin-top:.25rem;word-break:break-all'>";
+      h += e->rule;
+      h += "</div></div>";
+    }
+  }
   h += "</div></body></html>";
   server.send(200, "text/html", h);
 }
