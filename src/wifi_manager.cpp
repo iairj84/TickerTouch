@@ -352,10 +352,36 @@ static String settingsPage() {
 
   // Calendar
   h += "<div class='section'><strong>Calendar</strong>";
-  h += "<label>iCal URL <small style='color:#888'>(Google / Outlook / Apple)</small></label>";
+  // Icon names must stay in the same order as enum CalIcon in storage.h.
+  const char* iconNames[] = {"Home","Keyboard","Folder","Mail","Phone","Dot","None"};
+
+  h += "<label>Calendar 1 &mdash; iCal URL <small style='color:#888'>(Google / Outlook / Apple)</small></label>";
   h += "<input type='text' name='icalUrl' placeholder='https://calendar.google.com/calendar/ical/...' value='";
   h += Storage::cfg.icalUrl;
   h += "'>";
+  h += "<label style='margin-top:8px'>Calendar 1 icon</label><select name='calIcon1'>";
+  for (int i = 0; i < CALICON_COUNT; i++) {
+    h += "<option value='"; h += i; h += "'";
+    if (Storage::cfg.calIcon1 == i) h += " selected";
+    h += ">"; h += iconNames[i]; h += "</option>";
+  }
+  h += "</select>";
+
+  h += "<label style='margin-top:10px'>Calendar 2 &mdash; iCal URL <small style='color:#888'>(optional)</small></label>";
+  h += "<input type='text' name='icalUrl2' placeholder='Leave blank to show only one calendar' value='";
+  h += Storage::cfg.icalUrl2;
+  h += "'>";
+  h += "<label style='margin-top:8px'>Calendar 2 icon</label><select name='calIcon2'>";
+  for (int i = 0; i < CALICON_COUNT; i++) {
+    h += "<option value='"; h += i; h += "'";
+    if (Storage::cfg.calIcon2 == i) h += " selected";
+    h += ">"; h += iconNames[i]; h += "</option>";
+  }
+  h += "</select>";
+  h += "<small style='color:#888'>Events from the second calendar get their own colour and icon, "
+       "so a work entry never reads as a personal one. An event that appears in both "
+       "with the same name and time is shown once.</small>";
+
   h += "<div style='margin-top:.6rem;font-size:.8rem;color:#888;line-height:1.7'>"
        "<div><b style='color:#aaa'>Google</b> - Settings &rarr; pick ONE specific calendar "
        "(not &lsquo;My calendars&rsquo;) &rarr; Secret address in iCal format</div>"
@@ -471,10 +497,19 @@ static void handleSettingsSave() {
   if (finnhub.length())
     finnhub.toCharArray(Storage::cfg.finnhubKey, sizeof(Storage::cfg.finnhubKey));
 
-  // iCal URL
+  // iCal URLs (the second one is optional and may legitimately be cleared)
   String icalUrl = server.arg("icalUrl");
   icalUrl.trim();
   icalUrl.toCharArray(Storage::cfg.icalUrl, sizeof(Storage::cfg.icalUrl));
+
+  String icalUrl2 = server.arg("icalUrl2");
+  icalUrl2.trim();
+  icalUrl2.toCharArray(Storage::cfg.icalUrl2, sizeof(Storage::cfg.icalUrl2));
+
+  if (server.hasArg("calIcon1"))
+    Storage::cfg.calIcon1 = (uint8_t)constrain(server.arg("calIcon1").toInt(), 0, (int)CALICON_COUNT - 1);
+  if (server.hasArg("calIcon2"))
+    Storage::cfg.calIcon2 = (uint8_t)constrain(server.arg("calIcon2").toInt(), 0, (int)CALICON_COUNT - 1);
 
   // Sports filter — capture old values to detect changes
   char oldTeamFilter[sizeof(Storage::cfg.teamFilter)];
@@ -996,10 +1031,14 @@ static void handleCalDebug() {
        ".ev b{display:block;font-size:.86rem;margin-bottom:.2rem}"
        ".k{color:#8b8b9a}.v{font-variant-numeric:tabular-nums}"
        ".cancelled{border-color:#7f1d1d;opacity:.75}"
+       ".src{display:inline-block;font-size:.6rem;font-weight:700;padding:0 .26rem;"
+       "border-radius:4px;margin-right:.3rem;vertical-align:middle}"
+       ".src.a{background:#312e81;color:#c7d2fe}.src.b{background:#78350f;color:#fde68a}"
        "a.back{color:#6366f1;font-size:.8rem;text-decoration:none}"
        "</style></head><body><div class='wrap'>"
        "<a class='back' href='/diag'>&larr; Diagnostics</a><h1>Calendar trace</h1>"
        "<p class='sub'>The most recent event blocks the feed sent, newest first. "
+       "A is calendar 1, B is calendar 2. "
        "&ldquo;was&rdquo; is the date an edited occurrence used to occupy.</p>";
   const int n = DataManager::calDebugCount();
   if (!n) {
@@ -1012,7 +1051,9 @@ static void handleCalDebug() {
     const bool cancelled = !strcasecmp(e->status, "CANCELLED");
     h += "<div class='ev";
     if (cancelled) h += " cancelled";
-    h += "'><b>";
+    h += "'>";
+    h += e->feed ? "<span class='src b'>B</span>" : "<span class='src a'>A</span>";
+    h += "<b>";
     h += e->title;
     h += "</b><span class='k'>starts</span> <span class='v'>";
     h += e->dtstart;
@@ -1029,7 +1070,9 @@ static void handleCalDebug() {
     for (int i = 0; i < nSeries; i++) {
       const DataManager::CalSeriesTrace *e = DataManager::calSeriesAt(i);
       if (!e) continue;
-      h += "<div class='ev'><b>";
+      h += "<div class='ev'>";
+      h += e->feed ? "<span class='src b'>B</span>" : "<span class='src a'>A</span>";
+      h += "<b>";
       h += e->title;
       h += "</b><span class='k'>starts</span> <span class='v'>";
       h += e->dtstart;

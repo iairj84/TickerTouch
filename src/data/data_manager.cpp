@@ -1091,13 +1091,14 @@ static uint8_t _calDebugCount = 0;   // how many slots are in use
 static uint8_t _calDebugNext  = 0;   // where the next block is written
 
 static void debugPush(const char *title, const char *dtstart, const char *recid,
-                      const char *status, bool hasRule) {
+                      const char *status, bool hasRule, uint8_t feed) {
   CalDebugEvent &e = _calDebug[_calDebugNext];
   strlcpy(e.title,   title,   sizeof(e.title));
   strlcpy(e.dtstart, dtstart, sizeof(e.dtstart));
   strlcpy(e.recid,   recid,   sizeof(e.recid));
   strlcpy(e.status,  status,  sizeof(e.status));
   e.hasRule = hasRule;
+  e.feed    = feed;
   _calDebugNext = (uint8_t)((_calDebugNext + 1) % CAL_DEBUG_SLOTS);
   if (_calDebugCount < CAL_DEBUG_SLOTS) _calDebugCount++;
 }
@@ -1118,13 +1119,14 @@ static CalSeriesTrace _calSeries[CAL_SERIES_SLOTS];
 static uint8_t _calSeriesCount = 0;
 
 static void seriesPush(const char *title, const char *dtstart,
-                       const char *rule, const char *exdate) {
+                       const char *rule, const char *exdate, uint8_t feed) {
   if (_calSeriesCount >= CAL_SERIES_SLOTS) return;
   CalSeriesTrace &e = _calSeries[_calSeriesCount++];
   strlcpy(e.title,   title,   sizeof(e.title));
   strlcpy(e.dtstart, dtstart, sizeof(e.dtstart));
   strlcpy(e.rule,    rule,    sizeof(e.rule));
   strlcpy(e.exdate,  exdate ? exdate : "", sizeof(e.exdate));
+  e.feed = feed;
 }
 
 int calSeriesCount() { return _calSeriesCount; }
@@ -1353,34 +1355,33 @@ static bool recurMatches(const char *rule, const char *dtstart, int dayShift,
 
 // ── Calendar via iCal ────────────────────────────────────────────────────────
 // Stream-parses iCal line by line — handles feeds of any size without buffering.
-void fetchCalendar() {
-  noteTry(FEED_CAL);
-  if (!strlen(Storage::cfg.icalUrl)) { noteOk(FEED_CAL); calReady = true; return; }
-  Serial.println(F("[Cal] fetching..."));
-  if (!WiFiManager::isConnected()) { noteFail(FEED_CAL); calReady = true; return; }
+// ── Calendar ─────────────────────────────────────────────────────────────────
+// Two feeds are supported: the first is the personal calendar, the second a work
+// one. Both are expanded into a single staging array tagged with the feed they
+// came from, then one collapse pass runs across the combined set, so an entry the
+// two calendars both contain becomes a single row while everything else keeps its
+// own badge and colour.
+#define CAL_DAYS 7            // today through +6
 
-  // Build date strings for today through next 6 days (7 total)
-  #define CAL_DAYS 7
-  time_t now_t = time(nullptr);
-  char dateDays[CAL_DAYS][9];
-  char dateUTCnext[CAL_DAYS][9];
+static CalendarEvent _calStage[MAX_CAL_EVENTS];
+static uint8_t       _calFlags[MAX_CAL_EVENTS];   // 1 = edited instance (RECURRENCE-ID)
+static uint8_t       _calFrom[MAX_CAL_EVENTS];    // 0 = first feed, 1 = second
+static char          _calUid[MAX_CAL_EVENTS][40];
+static uint8_t       _calStaged;                  // staging entries in use
 
-  for (int d = 0; d < CAL_DAYS; d++) {
-    time_t dt = now_t + (time_t)d * 86400;
-    struct tm *lt2 = localtime(&dt);
-    snprintf(dateDays[d], sizeof(dateDays[d]), "%04d%02d%02d",
-      lt2->tm_year+1900, lt2->tm_mon+1, lt2->tm_mday);
-    // UTC "next day" that maps to this local day (for negative tz offsets)
-    time_t dt2 = dt + 86400;
-    struct tm *lt3 = localtime(&dt2);
-    snprintf(dateUTCnext[d], sizeof(dateUTCnext[d]), "%04d%02d%02d",
-      lt3->tm_year+1900, lt3->tm_mon+1, lt3->tm_mday);
-  }
+// Where each edited instance came from — its title, UID and the date it used to
+// occupy — so the master's copy of that day can be removed.
+static char          _overTitle[MAX_CAL_EVENTS][64];
+static char          _overUid[MAX_CAL_EVENTS][40];
+static char          _overDate[MAX_CAL_EVENTS][9];
+static uint8_t       _overFrom[MAX_CAL_EVENTS];
+static uint8_t       _overCount;
 
-  Serial.printf("[Cal] fetching for %s (+6 days)\n", dateDays[0]);
-  const char *calUrl = Storage::cfg.icalUrl;
-
-  // Connect
+// Fetch one feed and expand it into the staging arrays. Returns true only when
+// the feed was actually retrieved, so a failed second calendar cannot look like
+// a healthy fetch on /diag.
+static bool calFetchFeed(const char *calUrl, uint8_t feedIdx,
+                         char (*dateDays)[9], char (*dateUTCnext)[9]) {
   HTTPClient http;
   WiFiClient plain;
   WiFiClientSecure tls;
@@ -1391,19 +1392,21 @@ void fetchCalendar() {
   } else {
     ok = http.begin(plain, String(calUrl));
   }
-  if (!ok) { noteFail(FEED_CAL); calReady = true; return; }
+  if (!ok) { Serial.printf("[Cal] feed %u: connect failed\n", feedIdx + 1); return false; }
   http.setTimeout(15000);
   http.useHTTP10(true);
   http.addHeader("User-Agent", "TickerTouch/1.0");
   int code = http.GET();
   if (code != 200) {
-    Serial.printf("[Cal] HTTP %d\n", code);
-    http.end(); noteFail(FEED_CAL); calReady = true; return;
+    Serial.printf("[Cal] feed %u: HTTP %d\n", feedIdx + 1, code);
+    http.end();
+    return false;
   }
 
-  // Stream-parse line by line
   WiFiClient *stream = http.getStreamPtr();
-  uint32_t deadline = millis() + 30000;
+  // 20s per feed. Two feeds still fit inside one refresh cycle, and a feed that
+  // stalls mid-body cannot hold the other one hostage for 30s each.
+  uint32_t deadline = millis() + 20000;
 
   char lineBuf[256];
   int linePos = 0;
@@ -1419,23 +1422,6 @@ void fetchCalendar() {
   char curStatus[12] = {};      // STATUS: CANCELLED, TENTATIVE, CONFIRMED
   char curUid[40] = {};         // UID: stable identity of a series
   bool curIsOverride = false;   // this VEVENT edits one instance of a series
-  uint8_t stagingCount = 0;
-  static CalendarEvent staging[MAX_CAL_EVENTS]; // static — 50 events × ~100 bytes would overflow stack
-  // 1 = the entry is an edited instance (came with a RECURRENCE-ID), so it owns
-  // that day's slot for its title instead of the master's generated copy.
-  static uint8_t stagingFlags[MAX_CAL_EVENTS];
-  // Where each edited instance came from: its title and the date it used to
-  // occupy, so the master's copy of that day can be removed.
-  static char    overTitle[MAX_CAL_EVENTS][64];
-  static char    overUid[MAX_CAL_EVENTS][40];
-  static char    overDate[MAX_CAL_EVENTS][9];
-  static char    stagingUid[MAX_CAL_EVENTS][40];   // UID of the block an entry came from
-  static uint8_t overCount = 0;
-  memset(staging, 0, sizeof(staging));
-  memset(stagingFlags, 0, sizeof(stagingFlags));
-  memset(stagingUid, 0, sizeof(stagingUid));
-  overCount = 0;
-  calSeriesReset();
   int totalBytes = 0;
 
   // A block cut off mid-line (socket closed, byte cap) still ends the logical line.
@@ -1459,20 +1445,21 @@ void fetchCalendar() {
 
       // Record where an edited instance came from before the title check: a moved
       // occurrence has to be traceable even if the feed omits its SUMMARY.
-      if (curIsOverride && strlen(curRecId) >= 8 && overCount < MAX_CAL_EVENTS) {
-        strlcpy(overTitle[overCount], curTitle, sizeof(overTitle[0]));
-        strlcpy(overUid[overCount],   curUid,   sizeof(overUid[0]));
-        memcpy(overDate[overCount], curRecId, 8);
-        overDate[overCount][8] = '\0';
-        overCount++;
+      if (curIsOverride && strlen(curRecId) >= 8 && _overCount < MAX_CAL_EVENTS) {
+        strlcpy(_overTitle[_overCount], curTitle, sizeof(_overTitle[0]));
+        strlcpy(_overUid[_overCount],   curUid,   sizeof(_overUid[0]));
+        memcpy(_overDate[_overCount], curRecId, 8);
+        _overDate[_overCount][8] = '\0';
+        _overFrom[_overCount] = feedIdx;
+        _overCount++;
       }
 
       if (!strlen(curTitle) || !strlen(curDtStart)) return;
 
       // Trace every block, including the ones dropped below, so /cal can answer
       // "why is this on screen" without access to the feed itself.
-      debugPush(curTitle, curDtStart, curRecId, curStatus, curRRule[0] != '\0');
-      if (curRRule[0]) seriesPush(curTitle, curDtStart, curRRule, curExdate);
+      debugPush(curTitle, curDtStart, curRecId, curStatus, curRRule[0] != '\0', feedIdx);
+      if (curRRule[0]) seriesPush(curTitle, curDtStart, curRRule, curExdate, feedIdx);
 
       // An instance that was declined or removed arrives as a normal VEVENT
       // carrying STATUS:CANCELLED at its original slot. Showing it is exactly the
@@ -1519,10 +1506,12 @@ void fetchCalendar() {
       }
 
       auto addEvent = [&](int day) {
-        if (day < 0 || day >= CAL_DAYS || stagingCount >= MAX_CAL_EVENTS) return;
-        stagingFlags[stagingCount] = curIsOverride ? 1 : 0;
-        strlcpy(stagingUid[stagingCount], curUid, sizeof(stagingUid[0]));
-        CalendarEvent &e = staging[stagingCount++];
+        if (day < 0 || day >= CAL_DAYS || _calStaged >= MAX_CAL_EVENTS) return;
+        _calFlags[_calStaged] = curIsOverride ? 1 : 0;
+        _calFrom[_calStaged]  = feedIdx;
+        strlcpy(_calUid[_calStaged], curUid, sizeof(_calUid[0]));
+        CalendarEvent &e = _calStage[_calStaged++];
+        e.calIdx = feedIdx;
         strlcpy(e.title, curTitle, sizeof(e.title));
         e.dayOffset = day;
         e.allDay = isAllDay;
@@ -1613,29 +1602,86 @@ void fetchCalendar() {
     } else if (totalBytes >= yieldAt) {
       yieldAt += 32768;
       vTaskDelay(1);
-      esp_task_wdt_reset(); // 540KB takes ~15s on slow connections
+      esp_task_wdt_reset(); // a full feed takes ~15s on slow connections
     }
   }
   if (totalBytes >= MAX_CAL_BYTES) flushPartial();
+  if (logicalLen) processLine(logical);   // last block if the feed ends without a newline
 
   http.end();
   if (strncmp(calUrl, "https", 5) == 0) tls.stop(); else plain.stop();
-  Serial.printf("[Cal] %d bytes, %d events (7-day)\n", totalBytes, stagingCount);
+  Serial.printf("[Cal] feed %u: %d bytes, %u events staged\n",
+                feedIdx + 1, totalBytes, _calStaged);
+  return true;
+}
 
-  // Sort by dayOffset first, then startMinute within each day
-  for (int i = 1; i < stagingCount; i++) {
-    CalendarEvent key = staging[i];
-    int j = i - 1;
-    while (j >= 0 && (staging[j].dayOffset > key.dayOffset ||
-           (staging[j].dayOffset == key.dayOffset && staging[j].startMinute > key.startMinute))) {
-      staging[j+1] = staging[j]; j--;
-    }
-    staging[j+1] = key;
+void fetchCalendar() {
+  noteTry(FEED_CAL);
+  const bool have1 = strlen(Storage::cfg.icalUrl)  > 0;
+  const bool have2 = strlen(Storage::cfg.icalUrl2) > 0;
+  if (!have1 && !have2) { noteOk(FEED_CAL); calReady = true; return; }
+  if (!WiFiManager::isConnected()) { noteFail(FEED_CAL); calReady = true; return; }
+
+  // Build date strings for today through next 6 days (7 total)
+  time_t now_t = time(nullptr);
+  char dateDays[CAL_DAYS][9];
+  char dateUTCnext[CAL_DAYS][9];
+
+  for (int d = 0; d < CAL_DAYS; d++) {
+    time_t dt = now_t + (time_t)d * 86400;
+    struct tm *lt2 = localtime(&dt);
+    snprintf(dateDays[d], sizeof(dateDays[d]), "%04d%02d%02d",
+      lt2->tm_year+1900, lt2->tm_mon+1, lt2->tm_mday);
+    // UTC "next day" that maps to this local day (for negative tz offsets)
+    time_t dt2 = dt + 86400;
+    struct tm *lt3 = localtime(&dt2);
+    snprintf(dateUTCnext[d], sizeof(dateUTCnext[d]), "%04d%02d%02d",
+      lt3->tm_year+1900, lt3->tm_mon+1, lt3->tm_mday);
   }
 
-  if (logicalLen) processLine(logical);   // last block if the feed ends without a newline
+  Serial.printf("[Cal] fetching for %s (+6 days), %d feed(s)\n",
+                dateDays[0], (have1 ? 1 : 0) + (have2 ? 1 : 0));
 
-  // Collapse the copies the feed implies: expansion adds the master's version of
+  _calStaged = 0;
+  _overCount = 0;
+  memset(_calStage, 0, sizeof(_calStage));
+  memset(_calFlags, 0, sizeof(_calFlags));
+  memset(_calFrom,  0, sizeof(_calFrom));
+  memset(_calUid,   0, sizeof(_calUid));
+  calSeriesReset();
+
+  int feedsOk = 0;
+  for (uint8_t f = 0; f < 2; f++) {
+    const char *u = (f == 0) ? Storage::cfg.icalUrl : Storage::cfg.icalUrl2;
+    if (!strlen(u)) continue;
+    // Each feed can run its 20s deadline; reset between them so a slow first
+    // calendar does not trip the task watchdog while the second is starting.
+    esp_task_wdt_reset();
+    if (calFetchFeed(u, f, dateDays, dateUTCnext)) feedsOk++;
+  }
+
+  // Sort by dayOffset first, then startMinute within each day
+  for (int i = 1; i < _calStaged; i++) {
+    CalendarEvent key = _calStage[i];
+    const uint8_t keyFrom = _calFrom[i], keyFlag = _calFlags[i];
+    char keyUid[40];
+    strlcpy(keyUid, _calUid[i], sizeof(keyUid));
+    int j = i - 1;
+    while (j >= 0 && (_calStage[j].dayOffset > key.dayOffset ||
+           (_calStage[j].dayOffset == key.dayOffset && _calStage[j].startMinute > key.startMinute))) {
+      _calStage[j+1] = _calStage[j];
+      _calFlags[j+1] = _calFlags[j];
+      _calFrom[j+1]  = _calFrom[j];
+      strlcpy(_calUid[j+1], _calUid[j], sizeof(_calUid[0]));
+      j--;
+    }
+    _calStage[j+1] = key;
+    _calFlags[j+1] = keyFlag;
+    _calFrom[j+1]  = keyFrom;
+    strlcpy(_calUid[j+1], keyUid, sizeof(_calUid[0]));
+  }
+
+  // Collapse the copies the feeds imply: expansion adds the master's version of
   // every instance, and an edited instance arrives as its own VEVENT. Same title,
   // same day means one entry; if only one of them carries a RECURRENCE-ID, that
   // one is the edit the user actually made, so it wins (including when the time
@@ -1643,19 +1689,22 @@ void fetchCalendar() {
   {
     // 1. A moved instance still occupies its old day as far as the master's rule
     //    is concerned, so a meeting shifted to next week kept showing on the
-    //    morning it originally held. Remove those copies.
+    //    morning it originally held. Remove those copies — within one feed only:
+    //    a RECURRENCE-ID from the work calendar says nothing about the personal
+    //    one, even when both happen to have a series with the same name.
     static uint8_t dead[MAX_CAL_EVENTS];
     memset(dead, 0, sizeof(dead));
-    for (int i = 0; i < stagingCount; i++) {
-      if (stagingFlags[i]) continue;
-      for (int k = 0; k < overCount && !dead[i]; k++) {
+    for (int i = 0; i < _calStaged; i++) {
+      if (_calFlags[i]) continue;
+      for (int k = 0; k < _overCount && !dead[i]; k++) {
+        if (_overFrom[k] != _calFrom[i]) continue;
         // Same series by UID (survives a rename) or by title.
         const bool sameSeries =
-            (overUid[k][0] && !strcmp(overUid[k], stagingUid[i])) ||
-            (overTitle[k][0] && !strcmp(overTitle[k], staging[i].title));
+            (_overUid[k][0] && !strcmp(_overUid[k], _calUid[i])) ||
+            (_overTitle[k][0] && !strcmp(_overTitle[k], _calStage[i].title));
         if (!sameSeries) continue;
         for (int d = 0; d < CAL_DAYS; d++) {
-          if (d == staging[i].dayOffset && !strncmp(dateDays[d], overDate[k], 8)) {
+          if (d == _calStage[i].dayOffset && !strncmp(dateDays[d], _overDate[k], 8)) {
             dead[i] = 1;
             break;
           }
@@ -1665,40 +1714,46 @@ void fetchCalendar() {
 
     // 2. Collapse the remaining copies.
     int kept = 0;
-    for (int i = 0; i < stagingCount; i++) {
+    for (int i = 0; i < _calStaged; i++) {
       if (dead[i]) continue;
       bool drop = false;
       for (int j = 0; j < kept && !drop; j++) {
-        if (strcmp(staging[i].title, staging[j].title) != 0) continue;
-        if (staging[i].dayOffset != staging[j].dayOffset) continue;
-        if (staging[i].startMinute == staging[j].startMinute) {
-          drop = true;                                  // exact duplicate
-        } else if (stagingFlags[i] && !stagingFlags[j]) {
-          staging[j] = staging[i];                      // edited instance replaces
-          stagingFlags[j] = stagingFlags[i];
+        if (strcmp(_calStage[i].title, _calStage[j].title) != 0) continue;
+        if (_calStage[i].dayOffset != _calStage[j].dayOffset) continue;
+        if (_calStage[i].startMinute == _calStage[j].startMinute) {
+          // Same title at the same minute on the same day is one event seen
+          // twice — typically one lunch on two calendars. Collapsing it across
+          // feeds is the whole point of tracking both.
           drop = true;
-        } else if (!stagingFlags[i] && stagingFlags[j]) {
+        } else if (_calFrom[i] != _calFrom[j]) {
+          continue;                                     // two feeds, two real events
+        } else if (_calFlags[i] && !_calFlags[j]) {
+          _calStage[j] = _calStage[i];                  // edited instance replaces
+          _calFlags[j] = _calFlags[i];
+          drop = true;
+        } else if (!_calFlags[i] && _calFlags[j]) {
           drop = true;                                  // master copy of that instance
         }
       }
       if (drop) continue;
       if (kept != i) {
-        staging[kept] = staging[i];
-        stagingFlags[kept] = stagingFlags[i];
-        strlcpy(stagingUid[kept], stagingUid[i], sizeof(stagingUid[0]));
+        _calStage[kept] = _calStage[i];
+        _calFlags[kept] = _calFlags[i];
+        _calFrom[kept]  = _calFrom[i];
+        strlcpy(_calUid[kept], _calUid[i], sizeof(_calUid[0]));
       }
       kept++;
     }
-    stagingCount = (uint8_t)kept;
+    _calStaged = (uint8_t)kept;
   }
 
-  memcpy(calEvents, staging, stagingCount * sizeof(CalendarEvent));
-  calCount = stagingCount;
-  noteOk(FEED_CAL);
+  memcpy(calEvents, _calStage, _calStaged * sizeof(CalendarEvent));
+  calCount = _calStaged;
+  if (feedsOk > 0) noteOk(FEED_CAL); else noteFail(FEED_CAL);
   calReady = true;
 }
 
-// ── forceRefresh ───────────────────────────────────────────────────────────────
+
 void forceRefresh() {
   Serial.println(F("[Data] forceRefresh"));
   if (Storage::cfg.lat==0.0f&&Storage::cfg.lon==0.0f) geocodeCity();

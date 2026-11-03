@@ -61,12 +61,13 @@ struct WeatherData {
 
 namespace DataManager {
 
-#define MAX_CAL_EVENTS 50   // enough for a week of events
+#define MAX_CAL_EVENTS 80   // two feeds share this: a week of events each
 
 struct CalendarEvent {
   char title[64];
   char timeStr[16];   // "9:00 AM" or "All Day"
   bool allDay;
+  uint8_t calIdx;     // 0 = first feed, 1 = second (sits in the struct's padding)
   int  startMinute;   // minutes from midnight for sorting (0-1439), 9999=all-day
   int  dayOffset;     // 0=today, 1=tomorrow, 2=day after, etc.
 };
@@ -97,6 +98,7 @@ struct CalDebugEvent {
   char recid[24];    // RECURRENCE-ID: the date an edited instance came from
   char status[12];   // CANCELLED, TENTATIVE, CONFIRMED
   bool hasRule;      // the block carries an RRULE
+  uint8_t feed;      // 0 = first calendar, 1 = second
 };
 
 int calDebugCount();
@@ -110,6 +112,7 @@ struct CalSeriesTrace {
   char dtstart[24];
   char rule[72];
   char exdate[72];   // dates the series explicitly skips
+  uint8_t feed;      // 0 = first calendar, 1 = second
 };
 
 int calSeriesCount();

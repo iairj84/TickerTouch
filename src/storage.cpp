@@ -53,6 +53,11 @@ void load() {
   cfg.extraCities[1].lat = prefs.getFloat("lat3", 0.0f);
   cfg.extraCities[1].lon = prefs.getFloat("lon3", 0.0f);
   prefs.getString("icalUrl", cfg.icalUrl, sizeof(cfg.icalUrl));
+  prefs.getString("icalUrl2", cfg.icalUrl2, sizeof(cfg.icalUrl2));
+  cfg.calIcon1 = prefs.getUChar("calIcon1", CALICON_HOME);
+  cfg.calIcon2 = prefs.getUChar("calIcon2", CALICON_KEYBOARD);
+  if (cfg.calIcon1 >= CALICON_COUNT) cfg.calIcon1 = CALICON_HOME;
+  if (cfg.calIcon2 >= CALICON_COUNT) cfg.calIcon2 = CALICON_KEYBOARD;
   cfg.tabMask = prefs.getUChar("tabMask", 0b0111);
   prefs.getString("teamFilter", cfg.teamFilter, sizeof(cfg.teamFilter));
   prefs.getString("cfbConf", cfg.cfbConf, sizeof(cfg.cfbConf)); // Sports+Finance+Weather default
@@ -84,6 +89,9 @@ void save() {
   prefs.putFloat("lat3",    cfg.extraCities[1].lat);
   prefs.putFloat("lon3",    cfg.extraCities[1].lon);
   prefs.putString("icalUrl", cfg.icalUrl);
+  prefs.putString("icalUrl2", cfg.icalUrl2);
+  prefs.putUChar("calIcon1", cfg.calIcon1);
+  prefs.putUChar("calIcon2", cfg.calIcon2);
   prefs.putUChar("tabMask", cfg.tabMask);
   prefs.putString("teamFilter", cfg.teamFilter);
   prefs.putString("cfbConf", cfg.cfbConf);

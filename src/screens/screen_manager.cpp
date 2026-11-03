@@ -115,6 +115,10 @@ static void clockTimerCb(lv_timer_t *timer) {
 }
 
 
+static bool calendarConfigured() {
+  return strlen(Storage::cfg.icalUrl) > 0 || strlen(Storage::cfg.icalUrl2) > 0;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // All tab — summary of every category
 // ─────────────────────────────────────────────────────────────────────────────
@@ -239,6 +243,8 @@ static void buildAllTab(lv_obj_t *parent) {
 
   // Calendar rows — today only (dayOffset == 0)
   if (Storage::cfg.tabMask & 0x08) {
+    const bool twoCals =
+        strlen(Storage::cfg.icalUrl) > 0 && strlen(Storage::cfg.icalUrl2) > 0;
     if (DataManager::calReady) {
       int shown = 0;
       for (int i = 0; i < DataManager::calCount; i++) {
@@ -247,12 +253,15 @@ static void buildAllTab(lv_obj_t *parent) {
         char timeLabel[20];
         if (e.allDay) strlcpy(timeLabel, "Today", sizeof(timeLabel));
         else snprintf(timeLabel, sizeof(timeLabel), "@ %s", e.timeStr);
-        addRow(timeLabel, e.title, pal.accent);
+        // With two calendars the row's own colour says which one it came from;
+        // the label still carries the time.
+        addRow(timeLabel, e.title,
+               twoCals ? (e.calIdx ? pal.calB : pal.calA) : pal.accent);
         shown++;
       }
-      if (shown == 0 && strlen(Storage::cfg.icalUrl))
+      if (shown == 0 && calendarConfigured())
         addRow("Calendar", "No events today", pal.textMuted);
-    } else if (!DataManager::calReady && strlen(Storage::cfg.icalUrl)) {
+    } else if (!DataManager::calReady && calendarConfigured()) {
       addRow("Calendar", "Loading...", pal.textMuted);
     }
   }
@@ -685,12 +694,26 @@ static const char* wmoDescShort(int c) {
   return "";
 }
 
+// Badge glyph for each calendar icon. The index order must match enum CalIcon in
+// storage.h — the settings page lists the same names in the same order.
+static const char *calGlyph(uint8_t idx) {
+  switch (idx) {
+    case CALICON_HOME:     return LV_SYMBOL_HOME;
+    case CALICON_KEYBOARD: return LV_SYMBOL_KEYBOARD;
+    case CALICON_FOLDER:   return LV_SYMBOL_DIRECTORY;
+    case CALICON_MAIL:     return LV_SYMBOL_ENVELOPE;
+    case CALICON_PHONE:    return LV_SYMBOL_CALL;
+    case CALICON_DOT:      return LV_SYMBOL_BULLET;
+    default:               return nullptr;   // CALICON_NONE
+  }
+}
+
 static void buildCalendarTab(lv_obj_t *parent) {
   lv_obj_set_style_bg_color(parent, pal.bg, 0);
 
   if (!DataManager::calReady) {
     lv_obj_t *lbl = lv_label_create(parent);
-    lv_label_set_text(lbl, !strlen(Storage::cfg.icalUrl)
+    lv_label_set_text(lbl, !calendarConfigured()
       ? "No calendar URL set.\nAdd your iCal URL in settings."
       : "Loading calendar...");
     lv_obj_set_style_text_color(lbl, pal.textMuted, 0);
@@ -728,6 +751,11 @@ static void buildCalendarTab(lv_obj_t *parent) {
   lv_obj_set_scroll_dir(scroll, LV_DIR_VER);
   lv_obj_set_scrollbar_mode(scroll, LV_SCROLLBAR_MODE_AUTO);
 
+  // With a second calendar configured the row border stops meaning "is this
+  // today" and starts meaning "which calendar is this". The day header above
+  // every row already says whether it is today, so nothing is lost.
+  const bool twoCals =
+      strlen(Storage::cfg.icalUrl) > 0 && strlen(Storage::cfg.icalUrl2) > 0;
   int lastDay = -1;
 
   for (int i = 0; i < DataManager::calCount; i++) {
@@ -774,8 +802,10 @@ static void buildCalendarTab(lv_obj_t *parent) {
     lv_obj_set_style_bg_color(row, pal.bg2, 0);
     lv_obj_add_style(row, &stNoBorder, 0);
     lv_obj_set_style_border_side(row, LV_BORDER_SIDE_LEFT, 0);
-    lv_obj_set_style_border_color(row, e.dayOffset == 0 ? pal.accent : pal.textMuted, 0);
-    lv_obj_set_style_border_width(row, 3, LV_STATE_DEFAULT);
+    const lv_color_t calCol = e.calIdx ? pal.calB : pal.calA;
+    lv_obj_set_style_border_color(row, twoCals ? calCol
+        : (e.dayOffset == 0 ? pal.accent : pal.textMuted), 0);
+    lv_obj_set_style_border_width(row, twoCals ? 4 : 3, LV_STATE_DEFAULT);
     lv_obj_set_style_radius(row, 4, 0);
     lv_obj_set_style_pad_left(row, 10, 0);
     lv_obj_set_style_pad_right(row, 6, 0);
@@ -785,14 +815,28 @@ static void buildCalendarTab(lv_obj_t *parent) {
     lv_obj_t *timeLbl = lv_label_create(row);
     lv_label_set_text(timeLbl, e.timeStr);
     lv_obj_add_style(timeLbl, &stFont12, 0);
-    lv_obj_set_style_text_color(timeLbl, e.dayOffset == 0 ? pal.accent : pal.textMuted, 0);
+    lv_obj_set_style_text_color(timeLbl, twoCals ? calCol
+        : (e.dayOffset == 0 ? pal.accent : pal.textMuted), 0);
     lv_obj_set_pos(timeLbl, 0, 0);
+
+    // The badge is what makes the two feeds readable without relying on hue —
+    // indigo and amber are 3px apart on a dark panel.
+    const char *glyph = twoCals
+        ? calGlyph(e.calIdx ? Storage::cfg.calIcon2 : Storage::cfg.calIcon1)
+        : nullptr;
+    if (glyph) {
+      lv_obj_t *icon = lv_label_create(row);
+      lv_label_set_text(icon, glyph);
+      lv_obj_add_style(icon, &stFont14, 0);
+      lv_obj_set_style_text_color(icon, calCol, 0);
+      lv_obj_align(icon, LV_ALIGN_RIGHT_MID, 0, 0);
+    }
 
     lv_obj_t *titleLbl = lv_label_create(row);
     lv_label_set_text(titleLbl, e.title);
     lv_obj_add_style(titleLbl, &stFont14, 0);
     lv_obj_set_style_text_color(titleLbl, pal.text, 0);
-    lv_obj_set_width(titleLbl, TFT_WIDTH - 40);
+    lv_obj_set_width(titleLbl, TFT_WIDTH - 40 - (glyph ? 18 : 0));
     lv_label_set_long_mode(titleLbl, LV_LABEL_LONG_DOT);
     lv_obj_set_pos(titleLbl, 0, 15);
   }

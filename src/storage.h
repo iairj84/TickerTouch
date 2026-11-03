@@ -3,6 +3,16 @@
 #include <Preferences.h>
 #include "../config.h"
 
+// ── Calendar identity icons ──────────────────────────────────────────────────
+// Stored as an index, not a string: a saved value can then never drift to a
+// different glyph when entries are appended to the list. The display maps the
+// index to an LV_SYMBOL_* glyph, the settings page maps it to a name.
+enum CalIcon : uint8_t {
+  CALICON_HOME = 0, CALICON_KEYBOARD, CALICON_FOLDER,
+  CALICON_MAIL, CALICON_PHONE, CALICON_DOT, CALICON_NONE,
+  CALICON_COUNT
+};
+
 // Saved user configuration
 struct UserConfig {
   bool    configured    = false;
@@ -50,6 +60,12 @@ struct UserConfig {
 
   // iCal URL for calendar tab (Google/Outlook/Apple secret feed URL)
   char icalUrl[256] = {};
+
+  // Optional second feed. Events from it are colour-coded and badged with their
+  // own icon so a work entry never reads as a personal one at a glance.
+  char    icalUrl2[256] = {};
+  uint8_t calIcon1 = CALICON_HOME;      // badge for the first feed
+  uint8_t calIcon2 = CALICON_KEYBOARD;  // badge for the second feed
 
   // Sports filtering — empty = show all teams for that league
   // teamFilter: comma-separated abbreviations e.g. "NYY,LAD,SEA,NYM"
