@@ -1289,9 +1289,13 @@ static bool utcToLocal(int y, int m, int d, int h, int mi,
 }
 
 // ── Zone offsets ────────────────────────────────────────────────────────────
-// A feed may stamp DTSTART in its own zone (TZID=...). Converting that wall clock
-// needs the offset that zone had on that date, which is a different question from
-// the offset ours has today. These rules mirror the POSIX strings the clock uses.
+// Converting an event's own wall clock needs the offset that zone had on that
+// date. Two sources, in order of authority:
+//   1. the feed's own VTIMEZONE block, which describes the zone exactly — this is
+//      what makes an event scheduled from another timezone come out right even
+//      when the zone is one no table would have listed;
+//   2. a small table of common zones, for feeds that name a zone but ship no block.
+// Anything unknown is left as written rather than guessed at.
 enum : uint8_t { ZRULE_NONE = 0, ZRULE_US, ZRULE_EU, ZRULE_SOUTH };
 
 static const struct { const char *name; int16_t baseMin; uint8_t rule; } ZONES[] = {
@@ -1300,6 +1304,7 @@ static const struct { const char *name; int16_t baseMin; uint8_t rule; } ZONES[]
   {"America/Tijuana",     -480, ZRULE_US},
   {"America/Denver",      -420, ZRULE_US},
   {"America/Edmonton",    -420, ZRULE_US},
+  {"America/Boise",       -420, ZRULE_US},
   {"America/Phoenix",     -420, ZRULE_NONE},
   {"America/Chicago",     -360, ZRULE_US},
   {"America/Winnipeg",    -360, ZRULE_US},
@@ -1307,19 +1312,68 @@ static const struct { const char *name; int16_t baseMin; uint8_t rule; } ZONES[]
   {"America/New_York",    -300, ZRULE_US},
   {"America/Toronto",     -300, ZRULE_US},
   {"America/Detroit",     -300, ZRULE_US},
+  {"America/Indiana/Indianapolis", -300, ZRULE_US},
+  {"America/Kentucky/Louisville",  -300, ZRULE_US},
+  {"America/Halifax",     -240, ZRULE_US},
   {"America/Anchorage",   -540, ZRULE_US},
   {"Pacific/Honolulu",    -600, ZRULE_NONE},
   {"Europe/London",          0, ZRULE_EU},
   {"Europe/Dublin",          0, ZRULE_EU},
+  {"Europe/Lisbon",          0, ZRULE_EU},
   {"Europe/Berlin",         60, ZRULE_EU},
   {"Europe/Paris",          60, ZRULE_EU},
   {"Europe/Madrid",         60, ZRULE_EU},
   {"Europe/Rome",           60, ZRULE_EU},
   {"Europe/Amsterdam",      60, ZRULE_EU},
-  {"Australia/Sydney",     600, ZRULE_SOUTH},
+  {"Europe/Brussels",       60, ZRULE_EU},
+  {"Europe/Zurich",         60, ZRULE_EU},
+  {"Europe/Vienna",         60, ZRULE_EU},
+  {"Europe/Prague",         60, ZRULE_EU},
+  {"Europe/Warsaw",         60, ZRULE_EU},
+  {"Europe/Stockholm",      60, ZRULE_EU},
+  {"Europe/Oslo",           60, ZRULE_EU},
+  {"Europe/Copenhagen",     60, ZRULE_EU},
+  {"Europe/Helsinki",      120, ZRULE_EU},
+  {"Europe/Athens",        120, ZRULE_EU},
+  {"Europe/Bucharest",     120, ZRULE_EU},
+  {"Europe/Kyiv",          120, ZRULE_EU},
+  {"Europe/Istanbul",      180, ZRULE_NONE},
+  {"Asia/Dubai",           240, ZRULE_NONE},
+  {"Asia/Karachi",         300, ZRULE_NONE},
+  {"Asia/Kolkata",         330, ZRULE_NONE},
+  {"Asia/Dhaka",           360, ZRULE_NONE},
+  {"Asia/Bangkok",         420, ZRULE_NONE},
+  {"Asia/Jakarta",         420, ZRULE_NONE},
+  {"Asia/Shanghai",        480, ZRULE_NONE},
+  {"Asia/Hong_Kong",       480, ZRULE_NONE},
+  {"Asia/Singapore",       480, ZRULE_NONE},
+  {"Asia/Manila",          480, ZRULE_NONE},
+  {"Asia/Taipei",          480, ZRULE_NONE},
+  {"Asia/Seoul",           540, ZRULE_NONE},
   {"Asia/Tokyo",           540, ZRULE_NONE},
+  {"Australia/Perth",      480, ZRULE_NONE},
+  {"Australia/Brisbane",   600, ZRULE_NONE},
+  {"Australia/Adelaide",   570, ZRULE_SOUTH},
+  {"Australia/Sydney",     600, ZRULE_SOUTH},
+  {"Australia/Melbourne",  600, ZRULE_SOUTH},
+  {"Pacific/Auckland",     720, ZRULE_SOUTH},
 };
 static const int ZONE_COUNT = (int)(sizeof(ZONES) / sizeof(ZONES[0]));
+
+// A rule the feed described itself. Transition times are wall clocks in the zone,
+// exactly as VTIMEZONE defines them.
+struct VtzRule {
+  char    name[40];       // the TZID this rule belongs to
+  int32_t stdOff;         // seconds east of UTC, standard time
+  int32_t dstOff;         // seconds east of UTC, daylight time
+  bool    hasDst;
+  int8_t  dstMonth, dstWeek, dstWday, dstHour;   // daylight begins
+  int8_t  stdMonth, stdWeek, stdWday, stdHour;   // daylight ends
+};
+#define MAX_VTZ 6
+static VtzRule _vtz[MAX_VTZ];
+static uint8_t _vtzCount = 0;
+static void vtzReset() { _vtzCount = 0; memset(_vtz, 0, sizeof(_vtz)); }
 
 static void civilFromDays(uint32_t z, int &y, int &m, int &d) {
   z += 719468;
@@ -1342,7 +1396,7 @@ static int monthLen(int y, int m) {
 
 static int weekdayOf(uint32_t days);   // defined just below this block
 
-// Day of month for the 1st..5th weekday, or the last one when ordinal is -1.
+// Day of month for the 1st..5th weekday, or the last one when ordinal is negative.
 static int nthWeekdayOfMonth(int y, int m, int wd, int ordinal) {
   const int dim = monthLen(y, m);
   if (ordinal > 0) {
@@ -1351,6 +1405,30 @@ static int nthWeekdayOfMonth(int y, int m, int wd, int ordinal) {
   }
   const int lastWd = weekdayOf(civilDays(y, m, dim));
   return dim - ((lastWd - wd + 7) % 7);
+}
+
+// "+0100" / "-0530" -> seconds east of UTC.
+static int32_t parseTzOffsetSec(const char *v) {
+  int sign = 1;
+  if (*v == '-') { sign = -1; v++; }
+  else if (*v == '+') v++;
+  int h = 0, m = 0;
+  sscanf(v, "%2d%2d", &h, &m);
+  return (int32_t)sign * (h * 3600 + m * 60);
+}
+
+// "1SU" / "-1SU" / "SU" -> ordinal (0 = every) and weekday (0 = Sunday).
+static void parseByDay(const char *v, int &ord, int &wd) {
+  ord = 0; wd = -1;
+  if (!v) return;
+  int i = 0, sign = 1, n = 0;
+  if (v[0] == '-') { sign = -1; i++; }
+  else if (v[0] == '+') i++;
+  while (v[i] >= '0' && v[i] <= '9') { n = n * 10 + (v[i] - '0'); i++; }
+  ord = n ? sign * n : 0;
+  static const char *WD[] = {"SU","MO","TU","WE","TH","FR","SA"};
+  for (int k = 0; k < 7; k++)
+    if (!strncasecmp(v + i, WD[k], 2)) { wd = k; break; }
 }
 
 // Accepts the bare zone name, or one embedded in a longer TZID such as
@@ -1369,35 +1447,136 @@ static bool zoneBase(const char *name, int16_t &baseMin, uint8_t &rule) {
   return false;
 }
 
-static int32_t zoneOffsetAt(const char *name, int64_t epochUtc) {
+static const VtzRule *vtzFind(const char *name) {
+  if (!name || !name[0]) return nullptr;
+  for (uint8_t i = 0; i < _vtzCount; i++)
+    if (!strcasecmp(_vtz[i].name, name)) return &_vtz[i];
+  return nullptr;
+}
+
+static int32_t vtzOffsetAt(const VtzRule &z, int64_t epochUtc) {
+  if (!z.hasDst) return z.stdOff;
+  int y, m, d;
+  civilFromDays((uint32_t)((epochUtc + z.stdOff) / 86400), y, m, d);
+  const int dstWeek = z.dstWeek > 0 ? z.dstWeek : 1;
+  const int stdWeek = z.stdWeek > 0 ? z.stdWeek : 1;
+  const int64_t start = (int64_t)civilDays(y, z.dstMonth,
+                          nthWeekdayOfMonth(y, z.dstMonth, z.dstWday, dstWeek)) * 86400
+                      + (int64_t)z.dstHour * 3600 - z.stdOff;
+  const int64_t end   = (int64_t)civilDays(y, z.stdMonth,
+                          nthWeekdayOfMonth(y, z.stdMonth, z.stdWday, stdWeek)) * 86400
+                      + (int64_t)z.stdHour * 3600 - z.dstOff;
+  if (start < end) return (epochUtc >= start && epochUtc < end) ? z.dstOff : z.stdOff;
+  return (epochUtc >= start || epochUtc < end) ? z.dstOff : z.stdOff;   // southern
+}
+
+// Offset for a named zone at an instant. False means "we do not know this zone".
+static bool zoneOffsetFor(const char *name, int64_t epochUtc, int32_t &off) {
   int16_t baseMin = 0;
   uint8_t rule = ZRULE_NONE;
-  if (!zoneBase(name, baseMin, rule)) return 0;
-  const int32_t base = (int32_t)baseMin * 60;
-  if (rule == ZRULE_NONE) return base;
-
-  int y, m, d;
-  civilFromDays((uint32_t)((epochUtc + base) / 86400), y, m, d);
-
-  if (rule == ZRULE_US) {
-    // 2nd Sunday March 02:00 standard -> 1st Sunday November 02:00 daylight.
-    const int64_t start = (int64_t)civilDays(y, 3, nthWeekdayOfMonth(y, 3, 0, 2)) * 86400
+  if (zoneBase(name, baseMin, rule)) {
+    const int32_t base = (int32_t)baseMin * 60;
+    if (rule == ZRULE_NONE) { off = base; return true; }
+    int y, m, d;
+    civilFromDays((uint32_t)((epochUtc + base) / 86400), y, m, d);
+    if (rule == ZRULE_US) {
+      // 2nd Sunday March 02:00 standard -> 1st Sunday November 02:00 daylight.
+      const int64_t start = (int64_t)civilDays(y, 3, nthWeekdayOfMonth(y, 3, 0, 2)) * 86400
+                          + 2*3600 - base;
+      const int64_t end   = (int64_t)civilDays(y, 11, nthWeekdayOfMonth(y, 11, 0, 1)) * 86400
+                          + 1*3600 - base;
+      off = (epochUtc >= start && epochUtc < end) ? base + 3600 : base;
+      return true;
+    }
+    if (rule == ZRULE_EU) {
+      const int64_t start = (int64_t)civilDays(y, 3, nthWeekdayOfMonth(y, 3, 0, -1)) * 86400 + 3600;
+      const int64_t end   = (int64_t)civilDays(y, 10, nthWeekdayOfMonth(y, 10, 0, -1)) * 86400 + 3600;
+      off = (epochUtc >= start && epochUtc < end) ? base + 3600 : base;
+      return true;
+    }
+    // Southern hemisphere: daylight spans the new year.
+    const int64_t start = (int64_t)civilDays(y, 10, nthWeekdayOfMonth(y, 10, 0, 1)) * 86400
                         + 2*3600 - base;
-    const int64_t end   = (int64_t)civilDays(y, 11, nthWeekdayOfMonth(y, 11, 0, 1)) * 86400
-                        + 1*3600 - base;
-    return (epochUtc >= start && epochUtc < end) ? base + 3600 : base;
+    const int64_t end   = (int64_t)civilDays(y, 4, nthWeekdayOfMonth(y, 4, 0, 1)) * 86400
+                        + 2*3600 - (base + 3600);
+    off = (epochUtc >= start || epochUtc < end) ? base + 3600 : base;
+    return true;
   }
-  if (rule == ZRULE_EU) {
-    const int64_t start = (int64_t)civilDays(y, 3, nthWeekdayOfMonth(y, 3, 0, -1)) * 86400 + 3600;
-    const int64_t end   = (int64_t)civilDays(y, 10, nthWeekdayOfMonth(y, 10, 0, -1)) * 86400 + 3600;
-    return (epochUtc >= start && epochUtc < end) ? base + 3600 : base;
+  const VtzRule *z = vtzFind(name);
+  if (z) { off = vtzOffsetAt(*z, epochUtc); return true; }
+  return false;
+}
+
+// Consume one line of a VTIMEZONE block. Returns false when the line is not part
+// of one, so the event parser can carry on. Factored out of the parse loop so the
+// rules a feed declares can be exercised without a network or a feed.
+static bool vtzLine(const char *l, bool &inVtz, bool &daylight,
+                    VtzRule &cur, bool &hasStd, bool &hasDst) {
+  if (!inVtz) {
+    if (strcmp(l, "BEGIN:VTIMEZONE") == 0) {
+      inVtz = true; daylight = false; hasStd = hasDst = false;
+      memset(&cur, 0, sizeof(cur));
+      return true;
+    }
+    return false;
   }
-  // Southern hemisphere: daylight spans the new year.
-  const int64_t start = (int64_t)civilDays(y, 10, nthWeekdayOfMonth(y, 10, 0, 1)) * 86400
-                      + 2*3600 - base;
-  const int64_t end   = (int64_t)civilDays(y, 4, nthWeekdayOfMonth(y, 4, 0, 1)) * 86400
-                      + 2*3600 - (base + 3600);
-  return (epochUtc >= start || epochUtc < end) ? base + 3600 : base;
+  if (strcmp(l, "BEGIN:STANDARD") == 0) { daylight = false; return true; }
+  if (strcmp(l, "BEGIN:DAYLIGHT") == 0) { daylight = true;  return true; }
+  if (strcmp(l, "END:VTIMEZONE") == 0) {
+    inVtz = false;
+    if (cur.name[0] && (hasStd || hasDst) && _vtzCount < MAX_VTZ) {
+      if (!hasStd) cur.stdOff = cur.dstOff;
+      cur.hasDst = hasStd && hasDst && cur.stdOff != cur.dstOff
+                   && cur.dstMonth && cur.stdMonth;
+      _vtz[_vtzCount++] = cur;
+    }
+    return true;
+  }
+  if (strncmp(l, "TZID:", 5) == 0) {
+    const char *v = l + 5;
+    if (*v == '"') v++;
+    size_t n = strlen(v);
+    while (n && (v[n-1] == '"' || v[n-1] == '\r')) n--;
+    if (n >= sizeof(cur.name)) n = sizeof(cur.name) - 1;
+    memcpy(cur.name, v, n);
+    cur.name[n] = '\0';
+    return true;
+  }
+  if (strncmp(l, "TZOFFSETTO:", 11) == 0) {
+    const int32_t o = parseTzOffsetSec(l + 11);
+    if (daylight) { cur.dstOff = o; hasDst = true; }
+    else          { cur.stdOff = o; hasStd = true; }
+    return true;
+  }
+  if (strncmp(l, "DTSTART:", 8) == 0) {
+    // Transition wall clock. The RRULE below says which day of the month it is.
+    int y = 0, mo = 0, dd = 0, hh = 0, mi = 0;
+    sscanf(l + 8, "%4d%2d%2dT%2d%2d", &y, &mo, &dd, &hh, &mi);
+    const int ord = (dd + 6) / 7;
+    if (daylight) { cur.dstMonth = (int8_t)mo; cur.dstHour = (int8_t)hh;
+                    cur.dstWday = (int8_t)weekdayOf(civilDays(y, mo, dd));
+                    cur.dstWeek = (int8_t)ord; }
+    else          { cur.stdMonth = (int8_t)mo; cur.stdHour = (int8_t)hh;
+                    cur.stdWday = (int8_t)weekdayOf(civilDays(y, mo, dd));
+                    cur.stdWeek = (int8_t)ord; }
+    return true;
+  }
+  if (strncmp(l, "RRULE:", 6) == 0) {
+    const char *bm = strstr(l, "BYMONTH=");
+    const char *bd = strstr(l, "BYDAY=");
+    int mo = 0, ord = 0, wd = -1;
+    if (bm) mo = atoi(bm + 8);
+    if (bd) parseByDay(bd + 6, ord, wd);
+    if (daylight) {
+      if (mo) cur.dstMonth = (int8_t)mo;
+      if (wd >= 0) { cur.dstWday = (int8_t)wd; cur.dstWeek = (int8_t)(ord ? ord : 1); }
+    } else {
+      if (mo) cur.stdMonth = (int8_t)mo;
+      if (wd >= 0) { cur.stdWday = (int8_t)wd; cur.stdWeek = (int8_t)(ord ? ord : 1); }
+    }
+    return true;
+  }
+  return true;   // other VTIMEZONE lines are of no use here
 }
 
 // Turn an event's own wall clock into ours: UTC values and TZID values are both
@@ -1409,15 +1588,12 @@ static bool resolveEventTime(const char *tzid, bool isUtc,
   ly = y; lm = m; ld = d; lh = h; lmi = mi; shift = 0;
   if (isUtc) return utcToLocal(y, m, d, h, mi, ly, lm, ld, lh, lmi, shift);
   if (!tzid || !tzid[0]) return true;
-  int16_t baseMin = 0;
-  uint8_t rule = ZRULE_NONE;
-  if (!zoneBase(tzid, baseMin, rule)) return true;
 
   const int64_t wall = (int64_t)civilDays(y, m, d) * 86400 + (int64_t)h * 3600 + (int64_t)mi * 60;
-  int32_t off = zoneOffsetAt(tzid, wall);
+  int32_t off = 0, off2 = 0;
+  if (!zoneOffsetFor(tzid, wall, off)) return true;     // unknown zone: leave as written
   int64_t utc = wall - off;
-  const int32_t off2 = zoneOffsetAt(tzid, utc);   // settle the hour around a switch
-  if (off2 != off) utc = wall - off2;
+  if (zoneOffsetFor(tzid, utc, off2) && off2 != off) utc = wall - off2;
 
   int64_t days = utc / 86400;
   int sod = (int)(utc - days * 86400);
@@ -1666,6 +1842,7 @@ static bool calFetchFeed(const char *calUrl, uint8_t feedIdx,
   }
 
   WiFiClient *stream = http.getStreamPtr();
+  vtzReset();   // zone rules are per feed
   // 20s per feed. Two feeds still fit inside one refresh cycle, and a feed that
   // stalls mid-body cannot hold the other one hostage for 30s each.
   uint32_t deadline = millis() + 20000;
@@ -1684,6 +1861,9 @@ static bool calFetchFeed(const char *calUrl, uint8_t feedIdx,
   char curStatus[12] = {};      // STATUS: CANCELLED, TENTATIVE, CONFIRMED
   char curUid[40] = {};         // UID: stable identity of a series
   char curTzid[40] = {};        // TZID param on DTSTART: the zone its clock is in
+  bool inVtz = false, vtzDaylight = false;   // walking a VTIMEZONE block
+  VtzRule curVtz = {};
+  bool vtzHasStd = false, vtzHasDst = false;
   bool curIsOverride = false;   // this VEVENT edits one instance of a series
   int totalBytes = 0;
 
@@ -1697,6 +1877,11 @@ static bool calFetchFeed(const char *calUrl, uint8_t feedIdx,
   };
 
   auto processLine = [&](char *l) {
+
+    // VTIMEZONE blocks come before the events and describe the zones they
+    // name, which is the only reliable way to convert an event scheduled in
+    // a zone this firmware has never heard of.
+    if (vtzLine(l, inVtz, vtzDaylight, curVtz, vtzHasStd, vtzHasDst)) return;
 
     if (strcmp(l, "BEGIN:VEVENT") == 0) {
       inEvent = true; curTitle[0] = '\0'; curDtStart[0] = '\0';
