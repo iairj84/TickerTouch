@@ -677,7 +677,7 @@ static String imagesPage() {
   h += " more photo(s) at the usual size.</div>";
 
   h += "<script>"
-       "var W=520,H=300,SW=480,SH=216;"
+       "var W=520,H=300,SW=480,SH=272;"
        "function log(m){document.getElementById('log').textContent=m;}"
        "var input=document.getElementById('f'),btn=document.getElementById('up');"
        "input.onchange=function(){btn.disabled=!input.files.length;log('');};"

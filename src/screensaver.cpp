@@ -19,8 +19,11 @@ static lv_obj_t    *_overlay       = nullptr;
 // Info bar: clock on the left, ticker scrolling to its right. Docking the clock
 // here instead of floating it over the photo keeps the whole image unobstructed
 // and gives the text a solid background, so it stays readable on any picture.
-static const lv_coord_t BAR_H      = 56;
-static const lv_coord_t PHOTO_H    = TFT_HEIGHT - BAR_H;   // 216
+// The photo is full-bleed; the bar is a translucent scrim over its bottom edge.
+// Reserving 56px for a solid bar made the visible window 2.2:1, which forced blur
+// strips even on 16:9 photos. At full height they fill the panel almost exactly.
+static const lv_coord_t BAR_H      = 48;
+static const lv_coord_t PHOTO_H    = TFT_HEIGHT;
 static const lv_coord_t CLOCK_W    = 118;
 
 static lv_obj_t    *_bar           = nullptr;
@@ -271,9 +274,9 @@ static void showOverlay() {
   ThemePalette pal = Themes::get(Storage::cfg.theme);
   _bar = lv_obj_create(_overlay);
   lv_obj_set_size(_bar, TFT_WIDTH, BAR_H);
-  lv_obj_set_pos(_bar, 0, PHOTO_H);
-  lv_obj_set_style_bg_color(_bar, pal.tickerBg, 0);
-  lv_obj_set_style_bg_opa(_bar, LV_OPA_COVER, 0);
+  lv_obj_set_pos(_bar, 0, TFT_HEIGHT - BAR_H);
+  lv_obj_set_style_bg_color(_bar, lv_color_black(), 0);
+  lv_obj_set_style_bg_opa(_bar, 190, 0);   // ~75%: readable, photo still shows through
   lv_obj_set_style_border_width(_bar, 0, 0);
   lv_obj_set_style_radius(_bar, 0, 0);
   lv_obj_set_style_pad_all(_bar, 0, 0);
@@ -282,12 +285,12 @@ static void showOverlay() {
   _clockLbl = lv_label_create(_bar);
   lv_label_set_text(_clockLbl, "--:--");
   lv_obj_add_style(_clockLbl, &_stClock, 0);
-  lv_obj_set_pos(_clockLbl, 10, 4);
+  lv_obj_set_pos(_clockLbl, 10, 1);
 
   _dateLbl = lv_label_create(_bar);
   lv_label_set_text(_dateLbl, "");
   lv_obj_add_style(_dateLbl, &_stDate, 0);
-  lv_obj_set_pos(_dateLbl, 10, 34);
+  lv_obj_set_pos(_dateLbl, 10, 28);
 
   // Clip window for the ticker, right of the clock.
   _tickerClip = lv_obj_create(_bar);
@@ -303,7 +306,7 @@ static void showOverlay() {
   lv_obj_add_style(_tickerLbl, &_stTickerTxt, 0);
   lv_label_set_long_mode(_tickerLbl, LV_LABEL_LONG_CLIP);
   lv_obj_set_style_pad_all(_tickerLbl, 0, 0);
-  lv_obj_set_pos(_tickerLbl, TFT_WIDTH, 20);
+  lv_obj_set_pos(_tickerLbl, TFT_WIDTH, 17);
   _tickerX = TFT_WIDTH;
 
   const char *full = TickerEngine::getFullString();
