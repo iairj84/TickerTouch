@@ -187,7 +187,9 @@ void setup() {
   // Web server task — dedicated so settings page is never blocked by data fetching.
   // 8KB: Arduino WebServer + Preferences + the String-heavy settings page building
   // needs well over the 4KB it had, which was a stack-overflow candidate.
-  xTaskCreatePinnedToCore(webTask, "Web", 8192, nullptr, 2, &webTaskHandle, 0);
+  // 12KB, up from 8KB: /diag reports ~5.1KB left with the settings page alone,
+  // and the diagnostics page builds just as much HTML.
+  xTaskCreatePinnedToCore(webTask, "Web", 12288, nullptr, 2, &webTaskHandle, 0);
 
   // Main task — 40KB: it owns every TLS handshake (ip-api, Nominatim, Yahoo,
   // CoinGecko, Google iCal) and the 600KB iCal stream parse. 20KB was below what

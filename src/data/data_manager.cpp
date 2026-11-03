@@ -383,6 +383,7 @@ void fetchSports() {
     // after the loop. Freeing it here was a use-after-free + double-free.
     if (!http.begin(client, url)) { Serial.printf("[Sports] begin failed %s\n", lg.abbr); continue; }
     http.setTimeout(8000);  // reduced from 10000
+    http.useHTTP10(true);    // disables chunked transfer — body is clean bytes
     http.addHeader("User-Agent", "TickerTouch/1.0");
     int code = http.GET();
     if (code != 200) {
@@ -421,21 +422,23 @@ void fetchSports() {
         continue;
       }
 
-      // Need ~8KB past competitors start for the two team objects
+      // The two team objects that follow "competitors":[ are large: a basketball
+      // scoreboard puts over 11KB between that marker and the closing brace of the
+      // second team. With the block at an arbitrary offset the 16KB buffer could
+      // never hold it, so every NBA game was dropped while smaller leagues parsed.
+      // Slide the marker to the front first so the whole buffer is available.
       int cpOff = (int)(cp - buf);
-      while (bLen - cpOff < 8000 && millis() < deadline) {
-        int oldLen = bLen;
+      if (cpOff > 0) {
+        memmove(buf, cp, bLen - cpOff + 1);
+        bLen -= cpOff;
+        cp = buf;
+        cpOff = 0;
+      }
+      while (bLen < 12500 && millis() < deadline) {
+        const int oldLen = bLen;
         sportsFill(stream, buf, bLen, BSIZ, deadline);
-        // After fill+slide, cpOff may have changed — recalculate
-        if (bLen != oldLen || bLen < oldLen) {
-          cp = strstr(buf, "\"competitors\":[");
-          if (!cp) break;
-          cpOff = (int)(cp - buf);
-        }
         if (!stream->connected() && bLen == oldLen) break;
       }
-      if (!cp) continue;
-      cpOff = (int)(cp - buf); // refresh
 
       // Parse two competitor objects
       char homeTeam[8]="?", awayTeam[8]="?";
@@ -1078,7 +1081,147 @@ const char* buildTickerString() {
   return t;
 }
 
-// ── Calendar via iCal ─────────────────────────────────────────────────────────
+// ── Recurring events ─────────────────────────────────────────────────────────
+// An iCal feed ships a repeating event once, with an RRULE and a DTSTART in the
+// past. Reading DTSTART alone therefore drops a daily 11:30 lunch from every day
+// after the first, which is why it appeared online but never on the panel. These
+// helpers decide whether a rule places an occurrence on a given local date inside
+// the visible window.
+static uint32_t civilDays(int y, int m, int d) {
+  // Days since 1970-01-01 (Howard Hinnant's days-from-civil). No libc, no TZ.
+  y -= (m <= 2);
+  const int era = (y >= 0 ? y : y - 399) / 400;
+  const int yoe = y - era * 400;
+  const int doy = (153 * (m + (m > 2 ? -3 : 9)) + 2) / 5 + d - 1;
+  const int doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+  return (uint32_t)(era * 146097 + doe - 719468);
+}
+
+// 0 = Sunday
+static int weekdayOf(uint32_t days) { return (int)((days + 4) % 7); }
+
+static void ymdOf(const char *s, int &y, int &m, int &d) {
+  y = m = d = 0;
+  if (!s || strlen(s) < 8) return;
+  y = (s[0]-'0')*1000 + (s[1]-'0')*100 + (s[2]-'0')*10 + (s[3]-'0');
+  m = (s[4]-'0')*10 + (s[5]-'0');
+  d = (s[6]-'0')*10 + (s[7]-'0');
+}
+
+// "MO,WE,FR" -> bitmask (bit 0 = Sunday). 0 means no BYDAY was given.
+static uint8_t byDayMask(const char *v, int len) {
+  uint8_t mask = 0;
+  for (int i = 0; i + 1 < len; i++) {
+    const char a = v[i], b = v[i+1];
+    int wd = -1;
+    if      (a=='M' && b=='O') wd = 1;
+    else if (a=='T' && b=='U') wd = 2;
+    else if (a=='W' && b=='E') wd = 3;
+    else if (a=='T' && b=='H') wd = 4;
+    else if (a=='F' && b=='R') wd = 5;
+    else if (a=='S' && b=='A') wd = 6;
+    else if (a=='S' && b=='U') wd = 0;
+    if (wd >= 0) { mask |= (uint8_t)(1u << wd); i++; }
+  }
+  return mask;
+}
+
+static bool recurMatches(const char *rule, const char *dtstart, const char *ymdToday,
+                         const char *exdates) {
+  int my, mm, md, ty, tm, td;
+  ymdOf(dtstart, my, mm, md);
+  ymdOf(ymdToday, ty, tm, td);
+  if (!my || !ty) return false;
+
+  // EXDATE removes specific occurrences (a cancelled meeting in a series).
+  if (exdates && *exdates) {
+    const char *p = exdates;
+    while (*p) {
+      while (*p == ',' || *p == ' ') p++;
+      if (strncmp(p, ymdToday, 8) == 0) return false;
+      while (*p && *p != ',') p++;
+    }
+  }
+
+  enum { FREQ_NONE, FREQ_DAILY, FREQ_WEEKLY, FREQ_MONTHLY, FREQ_YEARLY };
+  int freq = FREQ_NONE, interval = 1, count = 0;
+  uint8_t byday = 0;
+  uint32_t until = 0;
+
+  const char *s = rule;
+  while (*s) {
+    const char *eq = strchr(s, '=');
+    if (!eq) break;
+    const int klen = (int)(eq - s);
+    const char *vb = eq + 1;
+    const char *ve = strchr(vb, ';');
+    const int vlen = ve ? (int)(ve - vb) : (int)strlen(vb);
+    if (klen == 4 && !strncmp(s, "FREQ", 4)) {
+      if      (vlen >= 5 && !strncmp(vb, "DAILY", 5))  freq = FREQ_DAILY;
+      else if (vlen >= 6 && !strncmp(vb, "WEEKLY", 6)) freq = FREQ_WEEKLY;
+      else if (vlen >= 7 && !strncmp(vb, "MONTHLY", 7))freq = FREQ_MONTHLY;
+      else if (vlen >= 6 && !strncmp(vb, "YEARLY", 6)) freq = FREQ_YEARLY;
+    } else if (klen == 8 && !strncmp(s, "INTERVAL", 8)) {
+      interval = atoi(vb); if (interval < 1) interval = 1;
+    } else if (klen == 5 && !strncmp(s, "COUNT", 5)) {
+      count = atoi(vb);
+    } else if (klen == 5 && !strncmp(s, "UNTIL", 5)) {
+      int uy, um, ud; ymdOf(vb, uy, um, ud); if (uy) until = civilDays(uy, um, ud);
+    } else if (klen == 5 && !strncmp(s, "BYDAY", 5)) {
+      byday = byDayMask(vb, vlen);
+    }
+    if (!ve) break;
+    s = ve + 1;
+  }
+  if (freq == FREQ_NONE) return false;
+
+  const uint32_t dMaster = civilDays(my, mm, md);
+  const uint32_t dToday  = civilDays(ty, tm, td);
+  const int mdiff = (ty - my) * 12 + (tm - mm);
+  const int ydiff = ty - my;
+
+  if (dToday < dMaster) return false;          // nothing before DTSTART
+  if (until && dToday > until) return false;
+
+  bool hit = false;
+  switch (freq) {
+    case FREQ_DAILY:
+      hit = ((dToday - dMaster) % (uint32_t)interval) == 0;
+      break;
+    case FREQ_WEEKLY: {
+      const uint32_t weeks = (dToday - dMaster) / 7;
+      if (weeks % (uint32_t)interval) return false;
+      hit = byday ? (byday & (1u << weekdayOf(dToday))) != 0
+                  : weekdayOf(dToday) == weekdayOf(dMaster);
+      break;
+    }
+    case FREQ_MONTHLY:
+      if (mdiff < 0 || (mdiff % interval)) return false;
+      hit = byday ? (byday & (1u << weekdayOf(dToday))) != 0 : (td == md);
+      break;
+    case FREQ_YEARLY:
+      if (ydiff < 0 || (ydiff % interval)) return false;
+      hit = (tm == mm) &&
+            (byday ? (byday & (1u << weekdayOf(dToday))) != 0 : (td == md));
+      break;
+    default:
+      return false;
+  }
+  if (!hit) return false;
+
+  // COUNT caps the total number of occurrences, not the window.
+  if (count > 0) {
+    int idx = 1;
+    if      (freq == FREQ_DAILY)   idx = (int)((dToday - dMaster) / (uint32_t)interval) + 1;
+    else if (freq == FREQ_WEEKLY)  idx = (int)(((dToday - dMaster) / 7) / (uint32_t)interval) + 1;
+    else if (freq == FREQ_MONTHLY) idx = mdiff / interval + 1;
+    else                           idx = ydiff / interval + 1;
+    if (idx > count) return false;
+  }
+  return true;
+}
+
+// ── Calendar via iCal ────────────────────────────────────────────────────────
 // Stream-parses iCal line by line — handles feeds of any size without buffering.
 void fetchCalendar() {
   noteTry(FEED_CAL);
@@ -1137,6 +1280,8 @@ void fetchCalendar() {
   bool inEvent = false;
   char curTitle[64] = {};
   char curDtStart[32] = {};
+  char curRRule[160] = {};
+  char curExdate[160] = {};
   uint8_t stagingCount = 0;
   static CalendarEvent staging[MAX_CAL_EVENTS]; // static — 50 events × ~100 bytes would overflow stack
   memset(staging, 0, sizeof(staging));
@@ -1149,6 +1294,7 @@ void fetchCalendar() {
 
     if (strcmp(l, "BEGIN:VEVENT") == 0) {
       inEvent = true; curTitle[0] = '\0'; curDtStart[0] = '\0';
+      curRRule[0] = '\0'; curExdate[0] = '\0';
     } else if (strcmp(l, "END:VEVENT") == 0 && inEvent) {
       inEvent = false;
       if (!strlen(curTitle) || !strlen(curDtStart)) return;
@@ -1178,29 +1324,46 @@ void fetchCalendar() {
         }
       }
 
-      if (matchDay >= 0 && stagingCount < MAX_CAL_EVENTS) {
+      // Time of day, resolved once so recurring copies can reuse it.
+      const bool isAllDay = (strlen(curDtStart) == 8);
+      int hh = utcH, mm = utcM;
+      if (!isAllDay && !isUTC && strlen(curDtStart) >= 13)
+        sscanf(curDtStart + 9, "%2d%2d", &hh, &mm);
+      if (isUTC) {
+        int localMins = hh*60 + mm + (Storage::cfg.tzOffsetSec/60);
+        localMins = ((localMins % 1440) + 1440) % 1440;
+        hh = localMins / 60; mm = localMins % 60;
+      }
+
+      auto addEvent = [&](int day) {
+        if (day < 0 || day >= CAL_DAYS || stagingCount >= MAX_CAL_EVENTS) return;
         CalendarEvent &e = staging[stagingCount++];
         strlcpy(e.title, curTitle, sizeof(e.title));
-        e.dayOffset = matchDay;
-        bool isAllDay = (strlen(curDtStart) == 8);
+        e.dayOffset = day;
         e.allDay = isAllDay;
         if (isAllDay) {
           strlcpy(e.timeStr, "All Day", sizeof(e.timeStr));
           e.startMinute = 9999;
         } else {
-          int hh = utcH, mm = utcM;
-          if (!isUTC && strlen(curDtStart) >= 13)
-            sscanf(curDtStart + 9, "%2d%2d", &hh, &mm);
-          if (isUTC) {
-            int localMins = hh*60 + mm + (Storage::cfg.tzOffsetSec/60);
-            localMins = ((localMins % 1440) + 1440) % 1440;
-            hh = localMins / 60; mm = localMins % 60;
-          }
           e.startMinute = hh * 60 + mm;
-          bool pm = (hh >= 12);
+          const bool pm = (hh >= 12);
           int dh = hh % 12; if (dh == 0) dh = 12;
           snprintf(e.timeStr, sizeof(e.timeStr), "%d:%02d %s", dh, mm, pm?"PM":"AM");
         }
+      };
+
+      if (curRRule[0]) {
+        bool any = false;
+        for (int d = 0; d < CAL_DAYS; d++) {
+          if (recurMatches(curRRule, curDtStart, dateDays[d], curExdate)) {
+            addEvent(d);
+            any = true;
+          }
+        }
+        // A rule we cannot expand still shows on its own DTSTART day.
+        if (!any && matchDay >= 0) addEvent(matchDay);
+      } else if (matchDay >= 0) {
+        addEvent(matchDay);
       }
     } else if (inEvent) {
       if (strncmp(l, "SUMMARY", 7) == 0) {
@@ -1209,6 +1372,12 @@ void fetchCalendar() {
       } else if (strncmp(l, "DTSTART", 7) == 0) {
         char *colon = strchr(l, ':');
         if (colon) strlcpy(curDtStart, colon+1, sizeof(curDtStart));
+      } else if (strncmp(l, "RRULE", 5) == 0) {
+        char *colon = strchr(l, ':');
+        if (colon) strlcpy(curRRule, colon+1, sizeof(curRRule));
+      } else if (strncmp(l, "EXDATE", 6) == 0) {
+        char *colon = strchr(l, ':');
+        if (colon) strlcpy(curExdate, colon+1, sizeof(curExdate));
       }
     }
   };

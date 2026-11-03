@@ -895,7 +895,13 @@ static void handleDiagGet() {
              (unsigned)(up / 86400), (unsigned)((up % 86400) / 3600), (unsigned)((up % 3600) / 60));
     diagRow(h, "Uptime", buf);
   }
-  diagRow(h, "Last reset", resetReasonName(esp_reset_reason()));
+  {
+    // Nothing in the switch matched before, which just read "unknown" and hid
+    // the fact that the code itself is informative (esptool leaves 0 behind).
+    const esp_reset_reason_t rr = esp_reset_reason();
+    diagRow(h, "Last reset", rr == ESP_RST_UNKNOWN
+              ? String("unknown (code 0)") : String(resetReasonName(rr)));
+  }
   h += "</div>";
 
   h += "<div class='card'><strong>Memory</strong>";
