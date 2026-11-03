@@ -2,7 +2,7 @@
 <html>
 <head>
     <meta charset="utf-8">
-    <title>TickerTouch — Feed Tests and Collapsible Settings</title>
+    <title>TickerTouch — Finished Events Drop Off</title>
     <style>
         body { font-family: sans-serif; text-align: center; padding: 50px; }
         button { padding: 15px 25px; font-size: 18px; cursor: pointer; }
@@ -16,46 +16,45 @@
     </style>
 </head>
 <body>
-    <h1>TickerTouch — Feed Tests and Collapsible Settings</h1>
-    <p>Version 1.9.0 — this is <strong>not</strong> the default firmware.</p>
+    <h1>TickerTouch — Finished Events Drop Off</h1>
+    <p>Version 1.9.1 — beta. The default installer is <a href="../">1.7.2</a>.</p>
 
     <p class="what">
-        <strong>Fetch now.</strong> Each calendar URL, the stock tickers and the crypto list now
-        have their own <em>Fetch now</em> button, with the result printed underneath: how many
-        events came back from each calendar, the next event, the parsed prices, or a plain
-        statement that the fetch failed. A mistyped or private calendar link used to fail
-        silently until the next scheduled refresh, which looked identical to a working feed
-        with nothing on today.<br><br>
-        <strong>Collapsible sections.</strong> The settings page now shows section headings that
-        open on tap, so the fields you came for are not buried under sports filters. Open
-        sections are remembered between visits and survive a save.
+        <strong>Today now means what is still to come.</strong> Once an event's end time
+        passes, it leaves the Calendar tab and the ticker on the minute it finishes, instead
+        of sitting there until midnight. A 9:00 standup at 1:00 PM is gone.<br><br>
+        The end comes from the feed's <code>DTEND</code>, or its <code>DURATION</code> when
+        that is what it sends. An entry with neither is assumed to last an hour — the spec
+        says an instant, but disappearing the moment a meeting starts would look like a bug.
+        All-day entries and anything running past midnight stay put until the day ends, and
+        later days are untouched.
     </p>
 
     <p class="keep">
         <strong>Keep your settings:</strong> the installer asks whether to erase the device.
         <strong>Leave erase off</strong> — erasing wipes WiFi, city, leagues, both calendar URLs
-        and the icon choices.
+        and the icon choices. Nothing in this build changes the saved settings format.
     </p>
 
     <div class="note">
         <strong>What to check after installing</strong>
         <ul style="margin:8px 0 0 18px; padding:0; line-height:1.7">
-            <li>Settings opens with the sections collapsed; tapping a heading opens it.</li>
-            <li><b>Calendar &rarr; Fetch now</b> reports a count for each calendar and the next event.</li>
-            <li>Deliberately break calendar 2's URL, fetch, and confirm it says that feed parsed nothing.</li>
-            <li><b>Stocks &rarr; Fetch now</b> lists the parsed prices.</li>
-            <li>Save the form, come back, and confirm the section you were editing is still open.</li>
+            <li>The Calendar tab shows only events that have not finished yet today.</li>
+            <li>The ticker's calendar segment loses the same rows.</li>
+            <li>Tomorrow's events are all still listed.</li>
+            <li>An all-day entry stays visible for the whole day.</li>
+            <li><b>Calendar &rarr; Fetch now</b> agrees with the tab: a finished meeting does not come back after a refresh.</li>
         </ul>
     </div>
 
     <p class="fine">
-        The fetch itself still runs on the device's data task, so a slow feed takes its time
-        without freezing the page. The button waits up to 45 seconds and then says so.
+        A row disappears only when the feed states an end on the same day. Times are compared
+        in local time, using the zone each event was written in.
     </p>
 
     <script type="module" src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"></script>
 
-    <esp-web-install-button manifest="./manifest-1_9_0c.json">
+    <esp-web-install-button manifest="./manifest-1_9_1c.json">
         <button slot="activate">Connect and Install</button>
         <span slot="unsupported">Your browser does not support Web Serial — use Chrome or Edge on desktop.</span>
         <span slot="not-allowed">Web Serial needs HTTPS (this page is) and a direct connection.</span>

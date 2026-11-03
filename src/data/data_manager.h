@@ -63,12 +63,18 @@ namespace DataManager {
 
 #define MAX_CAL_EVENTS 80   // two feeds share this: a week of events each
 
+// A row with no known end — an all-day entry, or one that runs past midnight —
+// is never treated as finished. Only a timed event carrying DTEND or DURATION
+// can be retired while its day is still running.
+constexpr int CAL_NO_END = 9999;
+
 struct CalendarEvent {
   char title[64];
   char timeStr[16];   // "9:00 AM" or "All Day"
   bool allDay;
   uint8_t calIdx;     // 0 = first feed, 1 = second (sits in the struct's padding)
   int  startMinute;   // minutes from midnight for sorting (0-1439), 9999=all-day
+  int  endMinute;     // minutes from midnight when it is over, CAL_NO_END = unknown
   int  dayOffset;     // 0=today, 1=tomorrow, 2=day after, etc.
 };
 
@@ -88,6 +94,10 @@ extern bool        weatherReady;
 extern CalendarEvent calEvents[MAX_CAL_EVENTS];
 extern uint8_t       calCount;
 extern bool          calReady;
+
+// Drop the rows that have already finished. Safe to call at any time: it does
+// nothing before the clock is set, and never removes all-day entries.
+void pruneEndedCalEvents();
 
 // ── Calendar parse trace (shown on /cal) ─────────────────────────────────────
 // The last few VEVENT blocks exactly as the feed sent them. A missing or phantom

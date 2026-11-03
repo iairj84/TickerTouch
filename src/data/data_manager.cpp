@@ -1815,6 +1815,37 @@ static char          _overDate[MAX_CAL_EVENTS][9];
 static uint8_t       _overFrom[MAX_CAL_EVENTS];
 static uint8_t       _overCount;
 
+// A meeting does not stop being on the calendar because it finished, but this
+// dashboard is about what comes next: a row whose end has passed is noise, and
+// "today" should mean what is still to come. Retiring them here rather than at
+// parse time means they disappear on the minute they end instead of lingering
+// until the next 15-minute fetch.
+void pruneEndedCalEvents() {
+  if (!calReady || calCount == 0) return;
+  const time_t now = time(nullptr);
+  if (now < 100000) return;              // 1970: there is no "now" to compare to
+  struct tm lt;
+  if (!localtime_r(&now, &lt)) return;
+  const int nowMin = lt.tm_hour * 60 + lt.tm_min;
+
+  uint8_t kept = 0;
+  for (uint8_t i = 0; i < calCount; i++) {
+    const CalendarEvent &e = calEvents[i];
+    // Only day 0 can have gone by. An all-day entry, or one that runs past
+    // midnight, carries CAL_NO_END and keeps its place until midnight.
+    if (e.dayOffset == 0 && !e.allDay &&
+        e.endMinute != CAL_NO_END && e.endMinute <= nowMin)
+      continue;
+    if (kept != i) calEvents[kept] = e;
+    kept++;
+  }
+  if (kept != calCount) {
+    Serial.printf("[Cal] %u event(s) finished, %u left today\n",
+                  (unsigned)(calCount - kept), (unsigned)kept);
+    calCount = kept;
+  }
+}
+
 // Fetch one feed and expand it into the staging arrays. Returns true only when
 // the feed was actually retrieved, so a failed second calendar cannot look like
 // a healthy fetch on /diag.
@@ -1855,6 +1886,8 @@ static bool calFetchFeed(const char *calUrl, uint8_t feedIdx,
   bool inEvent = false;
   char curTitle[64] = {};
   char curDtStart[32] = {};
+  char curDtEnd[32] = {};     // when it is over, if the feed says
+  char curDuration[20] = {};  // ...or how long it lasts, instead of an end
   char curRRule[160] = {};
   char curExdate[160] = {};
   char curRecId[24] = {};       // RECURRENCE-ID: the date the instance came from
@@ -1885,6 +1918,7 @@ static bool calFetchFeed(const char *calUrl, uint8_t feedIdx,
 
     if (strcmp(l, "BEGIN:VEVENT") == 0) {
       inEvent = true; curTitle[0] = '\0'; curDtStart[0] = '\0';
+      curDtEnd[0] = '\0'; curDuration[0] = '\0';
       curRRule[0] = '\0'; curExdate[0] = '\0'; curRecId[0] = '\0';
       curStatus[0] = '\0'; curUid[0] = '\0'; curTzid[0] = '\0';
       curIsOverride = false;
@@ -1936,6 +1970,61 @@ static bool calFetchFeed(const char *calUrl, uint8_t feedIdx,
         snprintf(localDate, sizeof(localDate), "%04d%02d%02d", ly, lmo, ld);
       }
 
+      // When this occurrence is over, in minutes from its own local midnight.
+      // Every copy a repeat rule generates ends at the same wall-clock time, so
+      // this is resolved once alongside the start and reused for all of them.
+      int evEnd = CAL_NO_END;
+      if (!isAllDay) {
+        int endMin = -1;
+        if (curDtEnd[0]) {
+          int ey = 0, emo = 0, ed = 0, eh = -1, emi = 0;
+          sscanf(curDtEnd, "%4d%2d%2dT%2d%2d", &ey, &emo, &ed, &eh, &emi);
+          int ely = ey, elmo = emo, eld = ed, elh = 0, elmi = 0, eshift = 0;
+          const bool endIsDate = (strlen(curDtEnd) == 8);
+          if (endIsDate) {
+            // DTEND;VALUE=DATE is the exclusive end date: an event ending today is
+            // over at midnight tonight, so that boundary needs no zone shift.
+            ymdOf(curDtEnd, ey, emo, ed);
+            ely = ey; elmo = emo; eld = ed;
+          } else if (eh >= 0) {
+            const bool endUtc = (strlen(curDtEnd) >= 16 && curDtEnd[15] == 'Z');
+            // A DTEND with no zone of its own belongs to the start's zone.
+            resolveEventTime(curTzid, endUtc, ey, emo, ed, eh, emi,
+                             ely, elmo, eld, elh, elmi, eshift);
+          }
+          if (endIsDate || eh >= 0) {
+            // Compare the resolved end date with the occurrence's own local date:
+            // only an end later the same day can be measured against the clock, and
+            // one that runs past midnight has to survive the whole day.
+            char endDate[9];
+            snprintf(endDate, sizeof(endDate), "%04d%02d%02d", ely, elmo, eld);
+            if (strncmp(endDate, localDate, 8) == 0) endMin = elh * 60 + elmi;
+          }
+        } else if (curDuration[0]) {
+          // DURATION:PT1H30M, P1DT2H, PT45M - the other way to state an end.
+          int days = 0, hours = 0, mins = 0;
+          const char *p = curDuration;
+          while (*p) {
+            if (*p < '0' || *p > '9') { p++; continue; }   // P, T and designators
+            char *next = nullptr;
+            const long v = strtol(p, &next, 10);
+            if (next == p) { p++; continue; }
+            p = next;                                     // now on the designator
+            if      (*p == 'D') { days  = (int)v; p++; }
+            else if (*p == 'H') { hours = (int)v; p++; }
+            else if (*p == 'M') { mins  = (int)v; p++; }
+          }
+          if (days == 0) endMin = hh * 60 + mm + hours * 60 + mins;
+        }
+        if (endMin < 0) {
+          // No end stated at all. The spec calls that an instant, but retiring a
+          // meeting at the minute it starts reads as a bug, and the alternative to
+          // a guess here is a row that never goes away. An hour covers a slot.
+          endMin = hh * 60 + mm + 60;
+        }
+        if (endMin > hh * 60 + mm && endMin < 1440) evEnd = endMin;
+      }
+
       int matchDay = -1; // which day 0-6 this event falls on, -1 = not in range
       for (int d = 0; d < CAL_DAYS && matchDay < 0; d++)
         if (!strncmp(localDate, dateDays[d], 8)) matchDay = d;
@@ -1950,6 +2039,7 @@ static bool calFetchFeed(const char *calUrl, uint8_t feedIdx,
         strlcpy(e.title, curTitle, sizeof(e.title));
         e.dayOffset = day;
         e.allDay = isAllDay;
+        e.endMinute = evEnd;   // CAL_NO_END for all-day or open-ended rows
         if (isAllDay) {
           strlcpy(e.timeStr, "All Day", sizeof(e.timeStr));
           e.startMinute = 9999;
@@ -2013,6 +2103,14 @@ static bool calFetchFeed(const char *calUrl, uint8_t feedIdx,
       } else if (strncmp(l, "STATUS", 6) == 0) {
         char *colon = strchr(l, ':');
         if (colon) strlcpy(curStatus, colon+1, sizeof(curStatus));
+      } else if (strncmp(l, "DTEND", 5) == 0) {
+        // DTEND;TZID=...:20260101T100000 keeps its zone as written; a bare value
+        // is read in the start's zone below, which is what feeds mean by it.
+        char *colon = strchr(l, ':');
+        if (colon) strlcpy(curDtEnd, colon+1, sizeof(curDtEnd));
+      } else if (strncmp(l, "DURATION", 8) == 0) {
+        char *colon = strchr(l, ':');
+        if (colon) strlcpy(curDuration, colon+1, sizeof(curDuration));
       } else if (strncmp(l, "UID", 3) == 0) {
         char *colon = strchr(l, ':');
         if (colon) strlcpy(curUid, colon+1, sizeof(curUid));
@@ -2193,6 +2291,9 @@ void fetchCalendar() {
 
   memcpy(calEvents, _calStage, _calStaged * sizeof(CalendarEvent));
   calCount = _calStaged;
+  // A fetch that lands at 14:05 should not put this morning's 9:00 standup back
+  // on screen just because the feed still lists it.
+  pruneEndedCalEvents();
   if (feedsOk > 0) noteOk(FEED_CAL); else noteFail(FEED_CAL);
   calReady = true;
 }
@@ -2246,6 +2347,12 @@ void begin() {
 
 void tick() {
   uint32_t n = millis();
+
+  // Minute housekeeping: rows that have finished are dropped as the clock passes
+  // them, so the Calendar tab and the ticker stop advertising a meeting that is
+  // over without waiting for the next fetch.
+  static uint32_t lastPrune = 0;
+  if (n - lastPrune >= 60000) { lastPrune = n; pruneEndedCalEvents(); }
 
   // A queued request jumps ahead of the periodic work, and re-bases that feed's
   // timer so testing a URL does not leave the schedule firing twice.
