@@ -11,7 +11,7 @@
 // The one place the running build identifies itself. Surfaced on /diag so the
 // device can answer "which build am I on?" without a serial monitor; keep it in
 // step with the version in the installer manifests.
-#define FW_VERSION       "1.5.1"
+#define FW_VERSION       "1.5.2"
 
 // ── Display ──────────────────────────────────────────────────────────────────
 #define TFT_WIDTH        480

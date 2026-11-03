@@ -1282,9 +1282,14 @@ void fetchCalendar() {
   char curDtStart[32] = {};
   char curRRule[160] = {};
   char curExdate[160] = {};
+  bool curIsOverride = false;   // this VEVENT edits one instance of a series
   uint8_t stagingCount = 0;
   static CalendarEvent staging[MAX_CAL_EVENTS]; // static — 50 events × ~100 bytes would overflow stack
+  // 1 = the entry is an edited instance (came with a RECURRENCE-ID), so it owns
+  // that day's slot for its title instead of the master's generated copy.
+  static uint8_t stagingFlags[MAX_CAL_EVENTS];
   memset(staging, 0, sizeof(staging));
+  memset(stagingFlags, 0, sizeof(stagingFlags));
   int totalBytes = 0;
 
   auto processLine = [&]() {
@@ -1294,7 +1299,7 @@ void fetchCalendar() {
 
     if (strcmp(l, "BEGIN:VEVENT") == 0) {
       inEvent = true; curTitle[0] = '\0'; curDtStart[0] = '\0';
-      curRRule[0] = '\0'; curExdate[0] = '\0';
+      curRRule[0] = '\0'; curExdate[0] = '\0'; curIsOverride = false;
     } else if (strcmp(l, "END:VEVENT") == 0 && inEvent) {
       inEvent = false;
       if (!strlen(curTitle) || !strlen(curDtStart)) return;
@@ -1337,6 +1342,7 @@ void fetchCalendar() {
 
       auto addEvent = [&](int day) {
         if (day < 0 || day >= CAL_DAYS || stagingCount >= MAX_CAL_EVENTS) return;
+        stagingFlags[stagingCount] = curIsOverride ? 1 : 0;
         CalendarEvent &e = staging[stagingCount++];
         strlcpy(e.title, curTitle, sizeof(e.title));
         e.dayOffset = day;
@@ -1378,6 +1384,11 @@ void fetchCalendar() {
       } else if (strncmp(l, "EXDATE", 6) == 0) {
         char *colon = strchr(l, ':');
         if (colon) strlcpy(curExdate, colon+1, sizeof(curExdate));
+      } else if (strncmp(l, "RECURRENCE-ID", 13) == 0) {
+        // The feed ships one copy of a repeating event plus one extra VEVENT for
+        // each instance that was edited. Both land on the same day, which is what
+        // showed the same meeting two or three times.
+        curIsOverride = true;
       }
     }
   };
@@ -1424,6 +1435,38 @@ void fetchCalendar() {
       staging[j+1] = staging[j]; j--;
     }
     staging[j+1] = key;
+  }
+
+  // Collapse the copies the feed implies: expansion adds the master's version of
+  // every instance, and an edited instance arrives as its own VEVENT. Same title,
+  // same day means one entry; if only one of them carries a RECURRENCE-ID, that
+  // one is the edit the user actually made, so it wins (including when the time
+  // was moved, which is why this cannot just compare timestamps).
+  {
+    int kept = 0;
+    for (int i = 0; i < stagingCount; i++) {
+      bool drop = false;
+      for (int j = 0; j < kept && !drop; j++) {
+        if (strcmp(staging[i].title, staging[j].title) != 0) continue;
+        if (staging[i].dayOffset != staging[j].dayOffset) continue;
+        if (staging[i].startMinute == staging[j].startMinute) {
+          drop = true;                                  // exact duplicate
+        } else if (stagingFlags[i] && !stagingFlags[j]) {
+          staging[j] = staging[i];                      // edited instance replaces
+          stagingFlags[j] = stagingFlags[i];
+          drop = true;
+        } else if (!stagingFlags[i] && stagingFlags[j]) {
+          drop = true;                                  // master copy of that instance
+        }
+      }
+      if (drop) continue;
+      if (kept != i) {
+        staging[kept] = staging[i];
+        stagingFlags[kept] = stagingFlags[i];
+      }
+      kept++;
+    }
+    stagingCount = (uint8_t)kept;
   }
 
   memcpy(calEvents, staging, stagingCount * sizeof(CalendarEvent));
