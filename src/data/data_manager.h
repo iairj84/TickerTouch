@@ -88,6 +88,20 @@ extern CalendarEvent calEvents[MAX_CAL_EVENTS];
 extern uint8_t       calCount;
 extern bool          calReady;
 
+// ── Calendar parse trace (shown on /cal) ─────────────────────────────────────
+// The last few VEVENT blocks exactly as the feed sent them. A missing or phantom
+// entry can only be diagnosed from this: the feed URL exists only on the device.
+struct CalDebugEvent {
+  char title[40];
+  char dtstart[24];
+  char recid[24];    // RECURRENCE-ID: the date an edited instance came from
+  char status[12];   // CANCELLED, TENTATIVE, CONFIRMED
+  bool hasRule;      // the block carries an RRULE
+};
+
+int calDebugCount();
+const CalDebugEvent *calDebugAt(int i);
+
 extern bool        scoresReady;
 extern bool        stocksReady;
 extern bool        cryptoReady;

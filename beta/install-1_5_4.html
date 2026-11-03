@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>TickerTouch — Hardened Test Build</title>
+    <style>
+        body { font-family: sans-serif; text-align: center; padding: 50px; }
+        button { padding: 15px 25px; font-size: 18px; cursor: pointer; }
+        .warn { max-width: 560px; margin: 24px auto; color: #7a4a00; background: #fff4e0;
+                border: 1px solid #f0c37a; border-radius: 8px; padding: 14px; text-align: left; }
+        .keep { max-width: 560px; margin: 24px auto; color: #14532d; background: #ecfdf5;
+                border: 1px solid #86efac; border-radius: 8px; padding: 14px; text-align: left; }
+        .fine { color: #666; font-size: 14px; }
+    </style>
+</head>
+<body>
+    <h1>TickerTouch — Hardened Test Build</h1>
+    <p>Version 1.5.4 — this is <strong>not</strong> the default firmware.</p>
+
+    <p class="warn">
+        Skips calendar entries the feed has marked <strong>CANCELLED</strong>. A declined or removed
+        occurrence is delivered as an ordinary event block at its original time, so it was being drawn
+        as a meeting on a day it no longer exists — which is likely the phantom entry.<br><br>
+        Because that is still a guess, this build also adds a <strong>calendar trace page at
+        <code>/cal</code></strong> (linked from the diagnostics page). It lists the last 24 event blocks
+        exactly as the feed sent them — title, start, the date an edited occurrence came from, its
+        status, and whether it repeats. If an entry still appears that should not, that page says why.
+    </p>
+
+    <p class="keep">
+        <strong>Keep your settings:</strong> this installer now asks whether to erase the device
+        before flashing. <strong>Leave erase off</strong> — erasing wipes the WiFi credentials,
+        city and league selection, and the board will come back up at its factory defaults
+        (city "New York").
+    </p>
+
+    <script type="module" src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"></script>
+
+    <esp-web-install-button manifest="./manifest-1_5_4c.json">
+        <button slot="activate">Connect and Install</button>
+    </esp-web-install-button>
+
+    <p class="fine">Default installer: <a href="../">iairj84.github.io/TickerTouch</a></p>
+</body>
+</html>

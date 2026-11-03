@@ -4,6 +4,7 @@
 // config.h defines ARDUINOJSON_DEFAULT_NESTING_LIMIT 50 — MUST come before ArduinoJson
 #include "../../config.h"
 #include "data_manager.h"
+#include <strings.h>
 #include "../storage.h"
 #include "../wifi_manager.h"
 #include <HTTPClient.h>
@@ -1081,6 +1082,34 @@ const char* buildTickerString() {
   return t;
 }
 
+// ── Calendar parse trace ────────────────────────────────────────────────────
+// Kept small and static: this runs inside the calendar fetch, where the stack is
+// already the tightest thing on the device.
+static const int CAL_DEBUG_SLOTS = 24;
+static CalDebugEvent _calDebug[CAL_DEBUG_SLOTS];
+static uint8_t _calDebugCount = 0;   // how many slots are in use
+static uint8_t _calDebugNext  = 0;   // where the next block is written
+
+static void debugPush(const char *title, const char *dtstart, const char *recid,
+                      const char *status, bool hasRule) {
+  CalDebugEvent &e = _calDebug[_calDebugNext];
+  strlcpy(e.title,   title,   sizeof(e.title));
+  strlcpy(e.dtstart, dtstart, sizeof(e.dtstart));
+  strlcpy(e.recid,   recid,   sizeof(e.recid));
+  strlcpy(e.status,  status,  sizeof(e.status));
+  e.hasRule = hasRule;
+  _calDebugNext = (uint8_t)((_calDebugNext + 1) % CAL_DEBUG_SLOTS);
+  if (_calDebugCount < CAL_DEBUG_SLOTS) _calDebugCount++;
+}
+
+int calDebugCount() { return _calDebugCount; }
+
+const CalDebugEvent *calDebugAt(int i) {
+  if (i < 0 || i >= _calDebugCount) return nullptr;
+  const int oldest = (_calDebugCount < CAL_DEBUG_SLOTS) ? 0 : _calDebugNext;
+  return &_calDebug[(oldest + i) % CAL_DEBUG_SLOTS];
+}
+
 // ── Recurring events ─────────────────────────────────────────────────────────
 // An iCal feed ships a repeating event once, with an RRULE and a DTSTART in the
 // past. Reading DTSTART alone therefore drops a daily 11:30 lunch from every day
@@ -1287,6 +1316,7 @@ void fetchCalendar() {
   char curRRule[160] = {};
   char curExdate[160] = {};
   char curRecId[24] = {};       // RECURRENCE-ID: the date the instance came from
+  char curStatus[12] = {};      // STATUS: CANCELLED, TENTATIVE, CONFIRMED
   bool curIsOverride = false;   // this VEVENT edits one instance of a series
   uint8_t stagingCount = 0;
   static CalendarEvent staging[MAX_CAL_EVENTS]; // static — 50 events × ~100 bytes would overflow stack
@@ -1311,10 +1341,20 @@ void fetchCalendar() {
     if (strcmp(l, "BEGIN:VEVENT") == 0) {
       inEvent = true; curTitle[0] = '\0'; curDtStart[0] = '\0';
       curRRule[0] = '\0'; curExdate[0] = '\0'; curRecId[0] = '\0';
+      curStatus[0] = '\0';
       curIsOverride = false;
     } else if (strcmp(l, "END:VEVENT") == 0 && inEvent) {
       inEvent = false;
       if (!strlen(curTitle) || !strlen(curDtStart)) return;
+
+      // Trace every block, including the ones dropped below, so /cal can answer
+      // "why is this on screen" without access to the feed itself.
+      debugPush(curTitle, curDtStart, curRecId, curStatus, curRRule[0] != '\0');
+
+      // An instance that was declined or removed arrives as a normal VEVENT
+      // carrying STATUS:CANCELLED at its original slot. Showing it is exactly the
+      // "meeting that is not there" symptom.
+      if (!strcasecmp(curStatus, "CANCELLED")) return;
 
       bool isUTC = (strlen(curDtStart) >= 16 && curDtStart[15] == 'Z');
       int matchDay = -1; // which day 0-6 this event falls on, -1 = not in range
@@ -1413,6 +1453,9 @@ void fetchCalendar() {
         curIsOverride = true;
         char *colon = strchr(l, ':');
         if (colon) strlcpy(curRecId, colon+1, sizeof(curRecId));
+      } else if (strncmp(l, "STATUS", 6) == 0) {
+        char *colon = strchr(l, ':');
+        if (colon) strlcpy(curStatus, colon+1, sizeof(curStatus));
       }
     }
   };

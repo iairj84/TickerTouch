@@ -6,6 +6,7 @@
 #include <Preferences.h>
 #include <esp_system.h>
 #include <esp_heap_caps.h>
+#include <strings.h>
 #include "screensaver.h"
 
 // Declared in TickerTouch.ino — must be outside any namespace
@@ -968,6 +969,59 @@ static void handleDiagGet() {
   }
   h += "</div>";
 
+  h += "<div style='text-align:center;margin:1rem 0'>"
+       "<a href='/cal' style='color:#6366f1;text-decoration:none;font-size:.8rem'>"
+       "Calendar trace &rarr;</a></div>";
+
+  h += "</div></body></html>";
+  server.send(200, "text/html", h);
+}
+
+// ── Calendar parse trace ─────────────────────────────────────────────────────
+// Every VEVENT the feed sent, newest first, with the values that decide whether it
+// is shown. This exists because a calendar problem cannot be reproduced anywhere
+// but on the device: the feed lives behind a private URL.
+static void handleCalDebug() {
+  String h;
+  h.reserve(4500);
+  h += "<!DOCTYPE html><html lang='en'><head><meta charset='UTF-8'>"
+       "<meta name='viewport' content='width=device-width,initial-scale=1'>"
+       "<meta name='refresh' content='30'>"
+       "<title>TickerTouch - Calendar trace</title><style>"
+       "*{box-sizing:border-box;margin:0;padding:0}"
+       "body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0f0f14;color:#e8e8f0;padding:1rem}"
+       ".wrap{max-width:640px;margin:0 auto}h1{font-size:1.1rem;margin:.4rem 0 .1rem}"
+       ".sub{color:#888;font-size:.78rem;margin-bottom:1rem;line-height:1.5}"
+       ".ev{background:#1a1a24;border:1px solid #2a2a3a;border-radius:10px;padding:.6rem .8rem;margin-bottom:.5rem;font-size:.78rem;line-height:1.6}"
+       ".ev b{display:block;font-size:.86rem;margin-bottom:.2rem}"
+       ".k{color:#8b8b9a}.v{font-variant-numeric:tabular-nums}"
+       ".cancelled{border-color:#7f1d1d;opacity:.75}"
+       "a.back{color:#6366f1;font-size:.8rem;text-decoration:none}"
+       "</style></head><body><div class='wrap'>"
+       "<a class='back' href='/diag'>&larr; Diagnostics</a><h1>Calendar trace</h1>"
+       "<p class='sub'>The most recent event blocks the feed sent, newest first. "
+       "&ldquo;was&rdquo; is the date an edited occurrence used to occupy.</p>";
+  const int n = DataManager::calDebugCount();
+  if (!n) {
+    h += "<p class='sub'>Nothing captured yet - the calendar has not been fetched "
+         "since the last reboot.</p>";
+  }
+  for (int i = n - 1; i >= 0; i--) {
+    const DataManager::CalDebugEvent *e = DataManager::calDebugAt(i);
+    if (!e) continue;
+    const bool cancelled = !strcasecmp(e->status, "CANCELLED");
+    h += "<div class='ev";
+    if (cancelled) h += " cancelled";
+    h += "'><b>";
+    h += e->title;
+    h += "</b><span class='k'>starts</span> <span class='v'>";
+    h += e->dtstart;
+    h += "</span>";
+    if (e->recid[0]) { h += " &middot; <span class='k'>was</span> <span class='v'>"; h += e->recid; h += "</span>"; }
+    if (e->status[0])  { h += " &middot; <span class='k'>status</span> <span class='v'>"; h += e->status; h += "</span>"; }
+    if (e->hasRule)    h += " &middot; <span class='k'>repeats</span>";
+    h += "</div>";
+  }
   h += "</div></body></html>";
   server.send(200, "text/html", h);
 }
@@ -1042,6 +1096,7 @@ void startSettingsServer() {
   server.on("/img/delete", HTTP_POST, handleImageDelete);
   server.on("/img/clear",  HTTP_POST, handleImagesClear);
   server.on("/diag",       HTTP_GET,  handleDiagGet);
+  server.on("/cal",        HTTP_GET,  handleCalDebug);
   server.on("/restart", HTTP_POST, [](){
     server.send(200, "text/plain", "Restarting...");
     delay(500);
