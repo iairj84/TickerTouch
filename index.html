@@ -1,20 +1,38 @@
 <!DOCTYPE html>
 <html>
 <head>
+    <meta charset="utf-8">
     <title>TickerTouch Installer</title>
     <style>
         body { font-family: sans-serif; text-align: center; padding: 50px; }
         button { padding: 15px 25px; font-size: 18px; cursor: pointer; }
+        .keep { max-width: 560px; margin: 24px auto; color: #14532d; background: #ecfdf5;
+                border: 1px solid #86efac; border-radius: 8px; padding: 14px; text-align: left; }
+        .fine { color: #666; font-size: 14px; }
     </style>
 </head>
 <body>
     <h1>TickerTouch Firmware Installer</h1>
-    <p>Connect your ESP32-S3 via USB and click below to flash the latest version.</p>
+    <p>Version 1.7.2 — connect the board via USB and click below.</p>
+
+    <p class="keep">
+        <strong>Keep your settings:</strong> the installer asks whether to erase the device
+        before flashing. <strong>Leave erase off</strong> — erasing wipes the WiFi credentials,
+        city and league selection, both calendar URLs and the icon choices.
+    </p>
 
     <script type="module" src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"></script>
-    
+
     <esp-web-install-button manifest="./manifest.json">
         <button slot="activate">Connect and Install</button>
+        <span slot="unsupported">Your browser does not support Web Serial — use Chrome or Edge on desktop.</span>
     </esp-web-install-button>
+
+    <p class="fine">
+        This build carries the calendar work: two feeds with colour and icon badges, events
+        converted using the timezone each feed declares, and an hour that no longer drifts
+        across a daylight-saving change.
+    </p>
+    <p class="fine">Test builds are published at <a href="beta/">/beta/</a>.</p>
 </body>
 </html>
