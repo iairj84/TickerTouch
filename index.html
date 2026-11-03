@@ -13,7 +13,7 @@
 </head>
 <body>
     <h1>TickerTouch Firmware Installer</h1>
-    <p>Version 1.7.2 — connect the board via USB and click below.</p>
+    <p>Version 1.9.4 — connect the board via USB and click below.</p>
 
     <p class="keep">
         <strong>Keep your settings:</strong> the installer asks whether to erase the device
@@ -29,9 +29,20 @@
     </esp-web-install-button>
 
     <p class="fine">
-        This build carries the calendar work: two feeds with colour and icon badges, events
-        converted using the timezone each feed declares, and an hour that no longer drifts
-        across a daylight-saving change.
+        This build carries everything since 1.7.2. <strong>Settings</strong> can be exported
+        and restored as a file, and the panel dims itself at night at the hours you choose.
+        <strong>Sections collapse</strong> to headings so thirty fields stop being one wall, and
+        each calendar, the tickers and the crypto list have a <em>Fetch now</em> button that
+        reports what was actually parsed.
+    </p>
+    <p class="fine">
+        The <strong>Calendar</strong> tab and the ticker now drop events once they finish,
+        reading the end time from each feed, and say <em>Today - 2 earlier, nothing left</em>
+        rather than claiming the day was empty.
+    </p>
+    <p class="fine">
+        Settings backup is verified on hardware; restore has not been exercised on a device
+        yet, so keep the file you export.
     </p>
     <p class="fine">Test builds are published at <a href="beta/">/beta/</a>.</p>
 </body>
