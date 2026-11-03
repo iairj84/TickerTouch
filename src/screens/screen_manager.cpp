@@ -466,7 +466,7 @@ static void buildSportsTab(lv_obj_t *parent) {
 
     // Away badge — left side
     lv_obj_t *awayBadge = makeBadge(row, s.awayTeam, s.awayColor);
-    lv_obj_set_pos(awayBadge, 8, 11);
+    lv_obj_set_pos(awayBadge, 28, 11);   // leaves a gutter for the rank at the margin
 
     // Away rank (CFB/CBB only)
     if (s.awayRank > 0) {
@@ -475,7 +475,12 @@ static void buildSportsTab(lv_obj_t *parent) {
       lv_label_set_text(rnk, rankBuf);
       lv_obj_add_style(rnk, &stFont12, 0);
       lv_obj_set_style_text_color(rnk, pal.accentAlt, 0);
-      lv_obj_set_pos(rnk, 8, 1);
+      // Pinned at y=1 this landed on the badge's top edge and read as a smudge on
+      // the badge. It gets its own gutter in the row margin now, centred with the
+      // badge, so ranked and unranked rows line up the same way.
+      lv_obj_set_width(rnk, 24);
+      lv_obj_set_style_text_align(rnk, LV_TEXT_ALIGN_CENTER, 0);
+      lv_obj_set_pos(rnk, 2, 20);
     }
 
     // Away score
@@ -483,7 +488,7 @@ static void buildSportsTab(lv_obj_t *parent) {
     lv_label_set_text(awayScLbl, isSched ? "  " : s.awayScore);
     lv_obj_add_style(awayScLbl, &stFont22, 0);
     lv_obj_set_style_text_color(awayScLbl, pal.text, 0);
-    lv_obj_set_pos(awayScLbl, 68, 14);
+    lv_obj_set_pos(awayScLbl, 88, 14);
 
     // Center status
     lv_obj_t *midLbl = lv_label_create(row);
@@ -498,11 +503,11 @@ static void buildSportsTab(lv_obj_t *parent) {
     lv_label_set_text(homeScLbl, isSched ? "  " : s.homeScore);
     lv_obj_add_style(homeScLbl, &stFont22, 0);
     lv_obj_set_style_text_color(homeScLbl, pal.text, 0);
-    lv_obj_set_pos(homeScLbl, ROW_W - 68 - 30, 14);
+    lv_obj_set_pos(homeScLbl, ROW_W - 124, 14);
 
     // Home badge — right side
     lv_obj_t *homeBadge = makeBadge(row, s.homeTeam, s.homeColor);
-    lv_obj_set_pos(homeBadge, ROW_W - 60, 11);
+    lv_obj_set_pos(homeBadge, ROW_W - 86, 11);   // gutter on the right margin
 
     // Home rank (CFB/CBB only)
     if (s.homeRank > 0) {
@@ -511,7 +516,9 @@ static void buildSportsTab(lv_obj_t *parent) {
       lv_label_set_text(rnk, rankBuf);
       lv_obj_add_style(rnk, &stFont12, 0);
       lv_obj_set_style_text_color(rnk, pal.accentAlt, 0);
-      lv_obj_set_pos(rnk, ROW_W - 60, 1);
+      lv_obj_set_width(rnk, 24);
+      lv_obj_set_style_text_align(rnk, LV_TEXT_ALIGN_CENTER, 0);
+      lv_obj_set_pos(rnk, ROW_W - 26, 20);
     }
 
     // Green live dot
