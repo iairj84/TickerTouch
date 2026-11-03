@@ -2,7 +2,7 @@
 <html>
 <head>
     <meta charset="utf-8">
-    <title>TickerTouch — Today Stays Accounted For</title>
+    <title>TickerTouch — The Finished-Today Line Sits In The List</title>
     <style>
         body { font-family: sans-serif; text-align: center; padding: 50px; }
         button { padding: 15px 25px; font-size: 18px; cursor: pointer; }
@@ -16,17 +16,15 @@
     </style>
 </head>
 <body>
-    <h1>TickerTouch — Today Stays Accounted For</h1>
-    <p>Version 1.9.3 — beta. The default installer is <a href="../">1.7.2</a>.</p>
+    <h1>TickerTouch — The Finished-Today Line Sits In The List</h1>
+    <p>Version 1.9.4 — beta. The default installer is <a href="../">1.7.2</a>.</p>
 
     <p class="what">
-        <strong>The Calendar tab no longer skips today.</strong> 1.9.2 fixed the empty
-        calendar, but that message only appeared when the whole week was empty. With tomorrow
-        still holding events, the list opened straight on <em>Tomorrow</em> and read as though
-        today had never had anything on it.<br><br>
-        Today's place is now held by one muted line — <code>2 earlier - nothing left</code> —
-        sitting where the <em>Today</em> header would be. The finished events themselves still
-        cost nothing: it is one line, not a list of rows you have to scroll past.
+        <strong>Cosmetic fix.</strong> In 1.9.3 the line above Tomorrow was a bare label, so it
+        sat hard against the left edge with no band behind it and looked like text that had
+        escaped the list. It now uses the same strip as the day headers — 20&nbsp;px narrower
+        than the panel, indented 8&nbsp;px, 22&nbsp;px tall, with the left rule — and reads
+        <code>Today - 2 earlier, nothing left</code>, which is the heading it is replacing.
     </p>
 
     <p class="keep">
@@ -38,21 +36,15 @@
     <div class="note">
         <strong>What to check after installing</strong>
         <ul style="margin:8px 0 0 18px; padding:0; line-height:1.7">
-            <li>Once today's last event ends, the Calendar tab opens with <code>N earlier - nothing left</code>, then Tomorrow.</li>
-            <li>The Home tab agrees on the same number.</li>
-            <li>While events remain today, no such line appears and nothing else changes.</li>
-            <li>Tomorrow's rows still scroll normally under their header.</li>
+            <li>The "Today - N earlier" strip lines up with the "Tomorrow" header below it.</li>
+            <li>It is muted rather than accent-coloured, so it does not compete with a live day.</li>
+            <li>Everything else — pruning, fetch-now, collapsing — is unchanged.</li>
         </ul>
     </div>
 
-    <p class="fine">
-        The line appears only when today has no rows left but the retired count is above zero,
-        so a quiet day never gets one.
-    </p>
-
     <script type="module" src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"></script>
 
-    <esp-web-install-button manifest="./manifest-1_9_3c.json">
+    <esp-web-install-button manifest="./manifest-1_9_4c.json">
         <button slot="activate">Connect and Install</button>
         <span slot="unsupported">Your browser does not support Web Serial — use Chrome or Edge on desktop.</span>
         <span slot="not-allowed">Web Serial needs HTTPS (this page is) and a direct connection.</span>

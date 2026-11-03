@@ -786,12 +786,28 @@ static void buildCalendarTab(lv_obj_t *parent) {
       if (DataManager::calEvents[i].dayOffset == 0) { todayShown = true; break; }
     if (!todayShown && DataManager::calFinishedToday > 0) {
       char doneBuf[48];
-      snprintf(doneBuf, sizeof(doneBuf), "%u earlier - nothing left",
+      snprintf(doneBuf, sizeof(doneBuf), "Today - %u earlier, nothing left",
                (unsigned)DataManager::calFinishedToday);
-      lv_obj_t *doneLbl = lv_label_create(scroll);
+      // Same strip as a day header. As a bare label it sat flush against the
+      // screen edge and read as stray text instead of today's heading; the
+      // container is what gives the list its left margin and its band.
+      lv_obj_t *done = lv_obj_create(scroll);
+      lv_obj_set_size(done, TFT_WIDTH - 20, 22);
+      lv_obj_set_style_bg_color(done, pal.textMuted, 0);
+      lv_obj_set_style_bg_opa(done, LV_OPA_20, 0);
+      lv_obj_add_style(done, &stNoBorder, 0);
+      lv_obj_set_style_border_side(done, LV_BORDER_SIDE_LEFT, 0);
+      lv_obj_set_style_border_color(done, pal.textMuted, 0);
+      lv_obj_set_style_border_width(done, 3, LV_STATE_DEFAULT);
+      lv_obj_set_style_radius(done, 0, 0);
+      lv_obj_set_style_pad_left(done, 8, 0);
+      lv_obj_set_style_pad_ver(done, 0, 0);
+      lv_obj_clear_flag(done, LV_OBJ_FLAG_SCROLLABLE);
+      lv_obj_t *doneLbl = lv_label_create(done);
       lv_label_set_text(doneLbl, doneBuf);
       lv_obj_add_style(doneLbl, &stFont12, 0);
       lv_obj_set_style_text_color(doneLbl, pal.textMuted, 0);
+      lv_obj_align(doneLbl, LV_ALIGN_LEFT_MID, 0, 0);
     }
   }
 
