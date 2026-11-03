@@ -776,6 +776,25 @@ static void buildCalendarTab(lv_obj_t *parent) {
   // every row already says whether it is today, so nothing is lost.
   const bool twoCals =
       strlen(Storage::cfg.icalUrl) > 0 && strlen(Storage::cfg.icalUrl2) > 0;
+  // When today's rows have all been retired but later days still have events, the
+  // list opens straight on "Tomorrow" and reads as though today were empty. One
+  // muted line where today's header would have been keeps the day accounted for
+  // without spending rows on the events themselves.
+  {
+    bool todayShown = false;
+    for (int i = 0; i < DataManager::calCount; i++)
+      if (DataManager::calEvents[i].dayOffset == 0) { todayShown = true; break; }
+    if (!todayShown && DataManager::calFinishedToday > 0) {
+      char doneBuf[48];
+      snprintf(doneBuf, sizeof(doneBuf), "%u earlier - nothing left",
+               (unsigned)DataManager::calFinishedToday);
+      lv_obj_t *doneLbl = lv_label_create(scroll);
+      lv_label_set_text(doneLbl, doneBuf);
+      lv_obj_add_style(doneLbl, &stFont12, 0);
+      lv_obj_set_style_text_color(doneLbl, pal.textMuted, 0);
+    }
+  }
+
   int lastDay = -1;
 
   for (int i = 0; i < DataManager::calCount; i++) {
