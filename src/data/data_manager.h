@@ -95,6 +95,11 @@ extern CalendarEvent calEvents[MAX_CAL_EVENTS];
 extern uint8_t       calCount;
 extern bool          calReady;
 
+// How many of today's rows have already been retired. Once they are pruned an
+// empty calendar no longer means "nothing on today" — it may mean "nothing
+// left today", and the screens have to say which.
+extern uint8_t       calFinishedToday;
+
 // Drop the rows that have already finished. Safe to call at any time: it does
 // nothing before the clock is set, and never removes all-day entries.
 void pruneEndedCalEvents();

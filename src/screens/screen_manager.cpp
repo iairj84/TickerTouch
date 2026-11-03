@@ -262,8 +262,17 @@ static void buildAllTab(lv_obj_t *parent) {
                twoCals ? (e.calIdx ? pal.calB : pal.calA) : pal.accent);
         shown++;
       }
-      if (shown == 0 && calendarConfigured())
-        addRow("Calendar", "No events today", pal.textMuted);
+      if (shown == 0 && calendarConfigured()) {
+        // "No events today" stopped being true once finished rows began to be
+        // retired: a busy morning followed by a quiet afternoon is not an empty day.
+        char calEmpty[40];
+        if (DataManager::calFinishedToday > 0)
+          snprintf(calEmpty, sizeof(calEmpty), "%u earlier - nothing left",
+                   (unsigned)DataManager::calFinishedToday);
+        else
+          strlcpy(calEmpty, "No events today", sizeof(calEmpty));
+        addRow("Calendar", calEmpty, pal.textMuted);
+      }
     } else if (!DataManager::calReady && calendarConfigured()) {
       addRow("Calendar", "Loading...", pal.textMuted);
     }
@@ -726,8 +735,16 @@ static void buildCalendarTab(lv_obj_t *parent) {
   }
 
   if (DataManager::calCount == 0) {
+    // Same distinction as the Home tab: an empty list after a finished morning is
+    // not the same statement as a calendar with nothing on it.
+    char calEmpty[48];
+    if (DataManager::calFinishedToday > 0)
+      snprintf(calEmpty, sizeof(calEmpty), "%u earlier - nothing left",
+               (unsigned)DataManager::calFinishedToday);
+    else
+      strlcpy(calEmpty, "No upcoming events", sizeof(calEmpty));
     lv_obj_t *lbl = lv_label_create(parent);
-    lv_label_set_text(lbl, "No upcoming events");
+    lv_label_set_text(lbl, calEmpty);
     lv_obj_add_style(lbl, &stFont14, 0);
     lv_obj_set_style_text_color(lbl, pal.textMuted, 0);
     lv_obj_center(lbl);

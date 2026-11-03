@@ -2,7 +2,7 @@
 <html>
 <head>
     <meta charset="utf-8">
-    <title>TickerTouch — Finished Events Drop Off</title>
+    <title>TickerTouch — A Finished Morning Is Not an Empty Day</title>
     <style>
         body { font-family: sans-serif; text-align: center; padding: 50px; }
         button { padding: 15px 25px; font-size: 18px; cursor: pointer; }
@@ -16,45 +16,43 @@
     </style>
 </head>
 <body>
-    <h1>TickerTouch — Finished Events Drop Off</h1>
-    <p>Version 1.9.1 — beta. The default installer is <a href="../">1.7.2</a>.</p>
+    <h1>TickerTouch — A Finished Morning Is Not an Empty Day</h1>
+    <p>Version 1.9.2 — beta. The default installer is <a href="../">1.7.2</a>.</p>
 
     <p class="what">
-        <strong>Today now means what is still to come.</strong> Once an event's end time
-        passes, it leaves the Calendar tab and the ticker on the minute it finishes, instead
-        of sitting there until midnight. A 9:00 standup at 1:00 PM is gone.<br><br>
-        The end comes from the feed's <code>DTEND</code>, or its <code>DURATION</code> when
-        that is what it sends. An entry with neither is assumed to last an hour — the spec
-        says an instant, but disappearing the moment a meeting starts would look like a bug.
-        All-day entries and anything running past midnight stay put until the day ends, and
-        later days are untouched.
+        <strong>The empty states now tell the truth.</strong> 1.9.1 started retiring events
+        once they finished, which left the Home tab saying <em>No events today</em> and the
+        Calendar tab saying <em>No upcoming events</em> after a busy morning. Both were wrong:
+        the day had been full, it was just over.<br><br>
+        With nothing left to show, they now say <code>2 earlier - nothing left</code>, using
+        the number of rows retired so far today. A calendar that genuinely has nothing on it
+        still reads <em>No events today</em>.
     </p>
 
     <p class="keep">
         <strong>Keep your settings:</strong> the installer asks whether to erase the device.
         <strong>Leave erase off</strong> — erasing wipes WiFi, city, leagues, both calendar URLs
-        and the icon choices. Nothing in this build changes the saved settings format.
+        and the icon choices.
     </p>
 
     <div class="note">
         <strong>What to check after installing</strong>
         <ul style="margin:8px 0 0 18px; padding:0; line-height:1.7">
-            <li>The Calendar tab shows only events that have not finished yet today.</li>
-            <li>The ticker's calendar segment loses the same rows.</li>
-            <li>Tomorrow's events are all still listed.</li>
-            <li>An all-day entry stays visible for the whole day.</li>
-            <li><b>Calendar &rarr; Fetch now</b> agrees with the tab: a finished meeting does not come back after a refresh.</li>
+            <li>After today's last event ends, Home shows <code>N earlier - nothing left</code> rather than "No events today".</li>
+            <li>The Calendar tab shows the same count instead of "No upcoming events".</li>
+            <li>A day with no events at all still reads <em>No events today</em> / <em>No upcoming events</em>.</li>
+            <li>Tomorrow's events still list normally, and the count only reflects today.</li>
         </ul>
     </div>
 
     <p class="fine">
-        A row disappears only when the feed states an end on the same day. Times are compared
-        in local time, using the zone each event was written in.
+        The count covers today only and restarts at each calendar fetch, so it cannot drift
+        upward across a long uptime.
     </p>
 
     <script type="module" src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"></script>
 
-    <esp-web-install-button manifest="./manifest-1_9_1c.json">
+    <esp-web-install-button manifest="./manifest-1_9_2c.json">
         <button slot="activate">Connect and Install</button>
         <span slot="unsupported">Your browser does not support Web Serial — use Chrome or Edge on desktop.</span>
         <span slot="not-allowed">Web Serial needs HTTPS (this page is) and a direct connection.</span>

@@ -26,6 +26,7 @@ RaceEntry   races[MAX_RACES]{};
 uint8_t     raceCount = 0;
 bool        racesReady = false;
 CalendarEvent calEvents[MAX_CAL_EVENTS]; uint8_t calCount = 0;
+uint8_t calFinishedToday = 0;   // today's rows retired since the day began
 bool weatherReady=false, scoresReady=false, stocksReady=false, cryptoReady=false, calReady=false;
 
 FeedHealth feedHealth[FEED_COUNT] = {};
@@ -1842,6 +1843,7 @@ void pruneEndedCalEvents() {
   if (kept != calCount) {
     Serial.printf("[Cal] %u event(s) finished, %u left today\n",
                   (unsigned)(calCount - kept), (unsigned)kept);
+    calFinishedToday = (uint8_t)(calFinishedToday + (calCount - kept));
     calCount = kept;
   }
 }
@@ -2292,7 +2294,9 @@ void fetchCalendar() {
   memcpy(calEvents, _calStage, _calStaged * sizeof(CalendarEvent));
   calCount = _calStaged;
   // A fetch that lands at 14:05 should not put this morning's 9:00 standup back
-  // on screen just because the feed still lists it.
+  // on screen just because the feed still lists it. The tally restarts with the
+  // staging array, so this counts today's finished rows once per fetch.
+  calFinishedToday = 0;
   pruneEndedCalEvents();
   if (feedsOk > 0) noteOk(FEED_CAL); else noteFail(FEED_CAL);
   calReady = true;
