@@ -260,13 +260,10 @@ static String settingsPage() {
   h += "</div></div>";
 
   // Sports Filter — all leagues shown always; disabled ones appear dimmed
-  h += "<div class='section'>"
-       "<div style='display:flex;align-items:center;justify-content:space-between;"
-       "cursor:pointer;padding:.2rem 0' onclick=\"tog('sf')\">"
-       "<strong>Sports Filter</strong>"
-       "<span id='sf_arr' style='color:#6366f1;font-size:.8rem'>&#9660; expand</span>"
-       "</div>"
-       "<div id='sf' style='display:none;margin-top:.5rem'>"
+  // The section is the expander. This used to carry a second "▼ expand" of its
+  // own, which put two controls on one job and left the inner one unclickable
+  // once the section header was wrapped around it.
+  h += "<div class='section'><strong>Sports Filter</strong>"
        "<p style='color:#888;font-size:.82rem;margin-bottom:.6rem'>"
        "Select teams to show only their games. Leave all unselected to show everything. "
        "Leagues shown in grey are not currently enabled in the Sports section above.</p>"
@@ -336,14 +333,12 @@ static String settingsPage() {
     "document.querySelectorAll('.cf').forEach(function(cb){"
     "if(sc.indexOf(cb.dataset.conf)>=0){cb.checked=true;"
     "var p=cb.closest('[id^=l_]');if(p)p.style.display='block';}});"
-    "if(sv.length||sc.length){var sf=document.getElementById('sf');if(sf)sf.style.display='block';"
-    "var a=document.getElementById('sf_arr');if(a)a.textContent='\u25b2 collapse';}"
     "document.querySelector('form').addEventListener('submit',function(){"
     "var t=[];document.querySelectorAll('.tf:checked').forEach(function(cb){t.push(cb.dataset.abbr);});"
     "document.getElementById('tfv').value=t.join(',');"
     "var c=[];document.querySelectorAll('.cf:checked').forEach(function(cb){c.push(cb.dataset.conf);});"
     "document.getElementById('cfv').value=c.join(',');});"
-    "</script></div></div>";
+    "</script></div>";
     h += "<div class='section'><strong>Stocks &amp; Crypto</strong>";
   h += "<label>Stock Tickers (comma-separated, e.g. AAPL,MSFT,SPY)</label>";
   h += "<input type='text' name='stocks' value='";
@@ -536,7 +531,11 @@ static String settingsPage() {
        "btn.innerHTML='<span class=\"car\">&#9656;</span><span>'+head.innerHTML+'</span>';"
        "head.parentNode.removeChild(head);"
        "s.insertBefore(btn,s.firstChild);s.appendChild(body);"
-       "if(stored?open[t]:idx===0)s.classList.add('open');"
+       "var hv=(document.getElementById('tfv')||{value:''}).value.trim()||"
+       "(document.getElementById('cfv')||{value:''}).value.trim();"
+       // A saved team filter lives in this section; leaving it collapsed would hide
+       // the only visible sign that games are being filtered.
+       "if(stored?open[t]:(idx===0||(hv&&t==='Sports Filter')))s.classList.add('open');"
        "btn.onclick=function(){open[t]=s.classList.toggle('open');"
        "try{localStorage.setItem(K,JSON.stringify(open));}catch(e){}};});"
        "function ttTest(feed,btn){"

@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>TickerTouch — One Expander For Sports Filter</title>
+    <style>
+        body { font-family: sans-serif; text-align: center; padding: 50px; }
+        button { padding: 15px 25px; font-size: 18px; cursor: pointer; }
+        .what { max-width: 580px; margin: 24px auto; color: #1e3a8a; background: #eff6ff;
+                border: 1px solid #93c5fd; border-radius: 8px; padding: 14px; text-align: left; }
+        .keep { max-width: 580px; margin: 24px auto; color: #14532d; background: #ecfdf5;
+                border: 1px solid #86efac; border-radius: 8px; padding: 14px; text-align: left; }
+        .note { max-width: 580px; margin: 24px auto; text-align: left; color: #333;
+                background: #f4f4f8; border: 1px solid #ddd; border-radius: 8px; padding: 14px; }
+        .fine { color: #666; font-size: 14px; }
+    </style>
+</head>
+<body>
+    <h1>TickerTouch — One Expander For Sports Filter</h1>
+    <p>Version 1.9.7 — beta. Stable is <a href="../">1.9.4</a>.</p>
+
+    <p class="what">
+        <strong>Sports Filter had two expanders.</strong> When the settings page gained
+        collapsible sections, the script looked for each section's heading and wrapped
+        everything below it — but Sports Filter already had its own heading with a
+        <em>&#9660; expand</em> link. The result was a section header stacked on top of the old
+        one, with the old "expand" link left stranded and unclickable.<br><br>
+        That inner toggle is gone. Sports Filter now behaves like every other section: the
+        header opens and closes it, and the explanation, team pickers and league groups are
+        all visible once it is open. The per-league groups inside it still fold
+        independently, which is what they are for.
+    </p>
+
+    <p class="keep">
+        <strong>Keep your settings:</strong> the installer asks whether to erase the device.
+        <strong>Leave erase off</strong> — erasing wipes WiFi, city, leagues, both calendar URLs
+        and the icon choices.
+    </p>
+
+    <div class="note">
+        <strong>What to check after installing</strong>
+        <ul style="margin:8px 0 0 18px; padding:0; line-height:1.7">
+            <li>Sports Filter has one heading, and clicking it opens the section.</li>
+            <li>No stray "&#9660; expand" line appears under the heading.</li>
+            <li>The league groups inside still fold on their own.</li>
+            <li>If you already have a team filter saved, that section starts open.</li>
+            <li>Saving still keeps the filter — it is submitted with the form as before.</li>
+        </ul>
+    </div>
+
+    <p class="fine">
+        Purely a settings-page fix: no firmware behaviour, feed parsing or saved keys changed.
+    </p>
+
+    <script type="module" src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"></script>
+
+    <esp-web-install-button manifest="./manifest-1_9_7c.json">
+        <button slot="activate">Connect and Install</button>
+        <span slot="unsupported">Your browser does not support Web Serial — use Chrome or Edge on desktop.</span>
+        <span slot="not-allowed">Web Serial needs HTTPS (this page is) and a direct connection.</span>
+    </esp-web-install-button>
+
+    <p class="fine">Stable installer: <a href="../">iairj84.github.io/TickerTouch</a></p>
+</body>
+</html>
