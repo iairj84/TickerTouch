@@ -27,6 +27,24 @@ bool        racesReady = false;
 CalendarEvent calEvents[MAX_CAL_EVENTS]; uint8_t calCount = 0;
 bool weatherReady=false, scoresReady=false, stocksReady=false, cryptoReady=false, calReady=false;
 
+FeedHealth feedHealth[FEED_COUNT] = {};
+
+const char *feedName(uint8_t feed) {
+  static const char *names[FEED_COUNT] = {
+    "weather", "scores", "stocks", "crypto", "racing", "calendar"
+  };
+  return feed < FEED_COUNT ? names[feed] : "?";
+}
+void noteTry(uint8_t feed) {
+  if (feed < FEED_COUNT) feedHealth[feed].tryMs = millis();
+}
+void noteOk(uint8_t feed) {
+  if (feed < FEED_COUNT) { feedHealth[feed].okMs = millis(); feedHealth[feed].fails = 0; }
+}
+void noteFail(uint8_t feed) {
+  if (feed < FEED_COUNT && feedHealth[feed].fails < 0xFFFF) feedHealth[feed].fails++;
+}
+
 static uint32_t lastSports=0, lastStocks=0, lastWeather=0, lastCrypto=0, lastCalendar=0, lastRacing=0;
 #define REFRESH_RACING_MS   300000  // 5 min — races don't change that fast
 #define REFRESH_CALENDAR_MS   900000  // 15 min
@@ -321,22 +339,25 @@ static int sportsFill(WiFiClient *stream, char *buf, int &bLen, int BSIZ, uint32
 }
 
 void fetchSports() {
+  noteTry(FEED_SCORES);
   // Use a staging counter so display sees complete old data until new fetch fully done
   uint8_t stagingCount = 0;
   uint16_t mask = Storage::cfg.sportsLeagues;
   Serial.printf("[Sports] mask=0x%04X\n", mask);
-  if (!mask) { scoreCount = 0; scoresReady = true; return; }
+  if (!mask) { scoreCount = 0; noteOk(FEED_SCORES); scoresReady = true; return; }
 
   const int BSIZ = 16384;
   char *buf = (char*)heap_caps_malloc(BSIZ, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
   if (!buf) {
     Serial.println(F("[Sports] alloc fail"));
+    noteFail(FEED_SCORES);
     scoresReady = true; return;
   }
   // Sanity check: DRAM addresses are 0x3fc00000-0x3fffffff on ESP32-S3
   if ((uint32_t)buf > 0x40000000) {
     Serial.printf("[Sports] BUF IN PSRAM: %p — aborting\n", buf);
     heap_caps_free(buf);
+    noteFail(FEED_SCORES);
     scoresReady = true; return;
   }
 
@@ -613,13 +634,15 @@ void fetchSports() {
     i = j;
   }
 
+  noteOk(FEED_SCORES);
   scoresReady = true;
   Serial.printf("[Sports] total=%d\n", scoreCount);
 }
 
 // ── Stocks via Yahoo Finance (no API key required) ────────────────────────────
 void fetchStocks() {
-  if (!strlen(Storage::cfg.stocks)) { stockCount = 0; stocksReady = true; return; }
+  noteTry(FEED_STOCKS);
+  if (!strlen(Storage::cfg.stocks)) { stockCount = 0; noteOk(FEED_STOCKS); stocksReady = true; return; }
 
   // Yahoo Finance v8 chart API — free, no key, returns current price + day change.
   // NOTE: the "meta" block is ~630 bytes, so the buffer must be bigger than that
@@ -705,16 +728,18 @@ void fetchStocks() {
   } else if (stockCount > 0) {
     Serial.println(F("[Stocks] no fresh data - keeping previous"));
   }
+  if (stagingCount > 0) noteOk(FEED_STOCKS); else noteFail(FEED_STOCKS);
   stocksReady = true;
   Serial.printf("[Stocks] done: %d\n", stockCount);
 }
 
 // ── Crypto via CoinGecko (free, no key) ────────────────────────────────────
 void fetchCrypto() {
+  noteTry(FEED_CRYPTO);
   // Cleared in settings -> drop the cached entries, otherwise the old coins
   // keep rendering forever because the early return left cryptoCount alone.
-  if (!strlen(Storage::cfg.crypto)) { cryptoCount = 0; cryptoReady = true; return; }
-  if (!WiFiManager::isConnected())  { cryptoReady = true; return; }
+  if (!strlen(Storage::cfg.crypto)) { cryptoCount = 0; noteOk(FEED_CRYPTO); cryptoReady = true; return; }
+  if (!WiFiManager::isConnected())  { noteFail(FEED_CRYPTO); cryptoReady = true; return; }
 
   char url[256];
   snprintf(url, sizeof(url),
@@ -724,7 +749,7 @@ void fetchCrypto() {
 
   const int CBUF = 1024;
   char *cbuf = (char*)heap_caps_malloc(CBUF, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-  if (!cbuf) { cryptoReady = true; return; }
+  if (!cbuf) { noteFail(FEED_CRYPTO); cryptoReady = true; return; }
 
   int len = httpGET_buf(url, cbuf, CBUF, 8000);
 
@@ -780,6 +805,7 @@ void fetchCrypto() {
     memcpy(cryptos, staging, stagingCount * sizeof(CryptoEntry));
     cryptoCount = stagingCount;
   }
+  if (stagingCount > 0) noteOk(FEED_CRYPTO); else noteFail(FEED_CRYPTO);
   cryptoReady = true;
   Serial.printf("[Crypto] done: %d\n", cryptoCount);
 }
@@ -832,6 +858,7 @@ static bool fetchWeatherCity(float lat, float lon, const char *cityName, Weather
 }
 
 void fetchWeather() {
+  noteTry(FEED_WEATHER);
   Serial.println(F("[Weather] fetching..."));
 
   // Geocode primary city if needed
@@ -877,7 +904,10 @@ void fetchWeather() {
 
   if (weatherCityCount > 0) {
     weather = weatherCities[0]; // keep primary alias in sync
+    noteOk(FEED_WEATHER);
     weatherReady = true;
+  } else {
+    noteFail(FEED_WEATHER);
   }
   Serial.printf("[Weather] done: %d cities\n", weatherCityCount);
 }
@@ -896,6 +926,7 @@ static void extractJsonStr(const char *buf, const char *key, char *out, int outL
 }
 
 void fetchRacing() {
+  noteTry(FEED_RACING);
   uint16_t mask = Storage::cfg.sportsLeagues;
   raceCount = 0;
 
@@ -986,6 +1017,7 @@ void fetchRacing() {
   }
 
   heap_caps_free(cbuf);
+  noteOk(FEED_RACING);
   racesReady = true;
   Serial.printf("[Race] done: %d series\n", raceCount);
 }
@@ -1049,9 +1081,10 @@ const char* buildTickerString() {
 // ── Calendar via iCal ─────────────────────────────────────────────────────────
 // Stream-parses iCal line by line — handles feeds of any size without buffering.
 void fetchCalendar() {
-  if (!strlen(Storage::cfg.icalUrl)) { calReady = true; return; }
+  noteTry(FEED_CAL);
+  if (!strlen(Storage::cfg.icalUrl)) { noteOk(FEED_CAL); calReady = true; return; }
   Serial.println(F("[Cal] fetching..."));
-  if (!WiFiManager::isConnected()) { calReady = true; return; }
+  if (!WiFiManager::isConnected()) { noteFail(FEED_CAL); calReady = true; return; }
 
   // Build date strings for today through next 6 days (7 total)
   #define CAL_DAYS 7
@@ -1085,14 +1118,14 @@ void fetchCalendar() {
   } else {
     ok = http.begin(plain, String(calUrl));
   }
-  if (!ok) { calReady = true; return; }
+  if (!ok) { noteFail(FEED_CAL); calReady = true; return; }
   http.setTimeout(15000);
   http.useHTTP10(true);
   http.addHeader("User-Agent", "TickerTouch/1.0");
   int code = http.GET();
   if (code != 200) {
     Serial.printf("[Cal] HTTP %d\n", code);
-    http.end(); calReady = true; return;
+    http.end(); noteFail(FEED_CAL); calReady = true; return;
   }
 
   // Stream-parse line by line
@@ -1226,6 +1259,7 @@ void fetchCalendar() {
 
   memcpy(calEvents, staging, stagingCount * sizeof(CalendarEvent));
   calCount = stagingCount;
+  noteOk(FEED_CAL);
   calReady = true;
 }
 

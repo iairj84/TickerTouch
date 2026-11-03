@@ -7,6 +7,12 @@
 // LCD  : NV3041A, 4-bit QSPI interface, 480×272 IPS
 // Touch: GT911 capacitive, I2C
 
+// ── Firmware identity ────────────────────────────────────────────────────────
+// The one place the running build identifies itself. Surfaced on /diag so the
+// device can answer "which build am I on?" without a serial monitor; keep it in
+// step with the version in the installer manifests.
+#define FW_VERSION       "1.5.0"
+
 // ── Display ──────────────────────────────────────────────────────────────────
 #define TFT_WIDTH        480
 #define TFT_HEIGHT       272

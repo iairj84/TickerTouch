@@ -4,9 +4,15 @@
 #include "sports_teams.h"
 #include "slideshow.h"
 #include <Preferences.h>
+#include <esp_system.h>
+#include <esp_heap_caps.h>
+#include "screensaver.h"
 
 // Declared in TickerTouch.ino — must be outside any namespace
 extern volatile bool gNeedRefresh;
+extern TaskHandle_t  lvglTaskHandle;
+extern TaskHandle_t  mainTaskHandle;
+extern TaskHandle_t  webTaskHandle;
 
 namespace WiFiManager {
 
@@ -389,7 +395,10 @@ static String settingsPage() {
        "this.textContent='Restarting...';this.disabled=true;"
        "fetch('/restart',{method:'POST'});}\">"
        "Restart Device</button>";
-  h += "</form></div></body></html>";
+  h += "</form>";
+  h += "<div style='text-align:center;margin-top:1rem;font-size:.8rem'>"
+       "<a href='/diag' style='color:#6366f1;text-decoration:none'>Device diagnostics &rarr;</a></div>";
+  h += "</div></body></html>";
   return h;
 }
 
@@ -631,12 +640,15 @@ static String imagesPage() {
     h += "%}"
          "#log{font-size:.82rem;color:#9aa;min-height:1.2rem;margin-top:.7rem;white-space:pre-wrap}"
          "a.back{color:#6366f1;font-size:.85rem;text-decoration:none}"
+         ".thumb{display:inline-block;width:172px;margin:.6rem .5rem 0 0;vertical-align:top}"
+         ".thumb canvas{width:172px;height:97px;border-radius:6px;display:block}"
+         ".thumb small{display:block;color:#8b8b9a;font-size:.68rem;margin-top:.25rem;line-height:1.35}"
          "</style></head><body><div class='wrap'>"
          "<a class='back' href='/'>&larr; Settings</a>"
          "<h1>Screensaver Images</h1>"
-         "<p class='sub'>Pick photos from your phone or computer. Each one is fitted to 520x300 with a blurred fill, "
-         "compressed in the browser, then uploaded - so large camera images are fine and nothing "
-         "needs resizing by hand.</p>";
+         "<p class='sub'>Pick photos from your phone or computer. Each one is composed for the 480x272 panel and "
+         "compressed in the browser, then uploaded - so large camera images are fine and nothing needs "
+         "resizing by hand. You get a preview of exactly what the device will show before anything is sent.</p>";
     h += "<div class='card'><strong>Storage</strong>";
     h += "<div class='bar'><div class='fill'></div></div>";
     h += "<div class='mono' style='margin:0'>";
@@ -648,7 +660,13 @@ static String imagesPage() {
   h += "<div class='card'><strong>Add photos</strong>"
        "<input type='file' id='f' accept='image/*' multiple>"
        "<button class='btn' id='up' type='button' disabled>Upload</button>"
-       "<div id='log'></div></div>";
+       "<div id='log'></div>"
+       "<div id='pvc' style='display:none'>"
+       "<strong style='display:block;margin-top:1rem'>Preview - as it will appear</strong>"
+       "<div id='pv'></div>"
+       "<small style='display:block;color:#8b8b9a;margin-top:.5rem;font-size:.72rem;line-height:1.4'>"
+       "The device draws the clock and ticker over the bottom strip shown here.</small></div>"
+       "</div>";
 
   h += "<div class='card'><strong>Current set</strong>";
   const int n = Slideshow::count();
@@ -673,21 +691,47 @@ static String imagesPage() {
        "(decline the erase prompt when flashing). About ";
   h += String((unsigned)(Slideshow::freeBytes() / 1024));
   h += " KB is free for roughly ";
-  h += String((unsigned)(Slideshow::freeBytes() / 48000));
+  h += String((unsigned)(Slideshow::freeBytes() / 40000));
   h += " more photo(s) at the usual size.</div>";
 
   h += "<script>"
-       "var W=480,H=272,CROPMAX=.32;"
+       "var W=480,H=272,CROPMAX=.32,queue=[];"
        "function log(m){document.getElementById('log').textContent=m;}"
        "var input=document.getElementById('f'),btn=document.getElementById('up');"
-       "input.onchange=function(){btn.disabled=!input.files.length;log('');};"
+       "var pv=document.getElementById('pv'),pvc=document.getElementById('pvc');"
+       "function thumb(c,name,note){"
+       "var d=document.createElement('div');d.className='thumb';"
+       "var p=document.createElement('canvas');p.width=344;p.height=194;var px=p.getContext('2d');"
+       "px.imageSmoothingQuality='high';px.drawImage(c,0,0,p.width,p.height);"
+       "var bh=Math.round(p.height*48/272);"
+       "px.fillStyle='rgba(0,0,0,.75)';px.fillRect(0,p.height-bh,p.width,bh);"
+       "px.fillStyle='#fff';px.font='bold 13px sans-serif';px.fillText('12:34',6,p.height-bh+bh/2+5);"
+       "px.fillStyle='#b9b9ff';px.font='11px sans-serif';px.fillText('TICKER TEXT SCROLLS HERE',52,p.height-bh+bh/2+4);"
+       "d.appendChild(p);"
+       "var s=document.createElement('small');s.textContent=name+' - '+note;d.appendChild(s);"
+       "pv.appendChild(d);pvc.style.display='block';"
+       "}"
+       "input.onchange=function(){"
+       "var files=Array.prototype.slice.call(input.files);"
+       "queue=[];pv.innerHTML='';pvc.style.display='none';btn.disabled=true;"
+       "if(!files.length){log('');return;}"
+       "var i=0;(function prep(){"
+       "if(i>=files.length){log(queue.length+' photo(s) ready - check the preview, then press Upload.');btn.disabled=!queue.length;return;}"
+       "var f=files[i++];log('Preparing '+i+'/'+files.length+': '+f.name);"
+       "shrink(f).then(function(res){"
+       "queue.push({blob:res.blob,name:f.name.replace(/[.][^.]+$/,'')+'.jpg'});"
+       "thumb(res.c,f.name,res.note);prep();"
+       "}).catch(function(e){log('Cannot read '+f.name+': '+e.message);prep();});"
+       "})();"
+       "};"
        "function shrink(file){return createImageBitmap(file).then(function(bmp){"
        "var c=document.createElement('canvas');c.width=W;c.height=H;var x=c.getContext('2d');"
-       "x.imageSmoothingQuality='high';"
+       "x.imageSmoothingQuality='high';var note='cropped to fill';"
        "var g=Math.max(W/bmp.width,H/bmp.height),gw=bmp.width*g,gh=bmp.height*g;"
        "if(1-(W*H)/(gw*gh)<=CROPMAX){"
        "x.drawImage(bmp,(W-gw)/2,(H-gh)/2,gw,gh);"
        "}else{"
+       "note='whole photo, blurred sides';"
        "var f=Math.min(W/bmp.width,H/bmp.height),fw=bmp.width*f,fh=bmp.height*f;"
        "var t=document.createElement('canvas');t.width=48;t.height=27;"
        "var tx=t.getContext('2d');var s=Math.max(t.width/bmp.width,t.height/bmp.height);"
@@ -696,18 +740,19 @@ static String imagesPage() {
        "x.fillStyle='rgba(0,0,0,.45)';x.fillRect(0,0,W,H);"
        "x.drawImage(bmp,(W-fw)/2,(H-fh)/2,fw,fh);"
        "}"
-       "return new Promise(function(r){c.toBlob(r,'image/jpeg',0.92);});});}"
-       "btn.onclick=function(){var files=Array.prototype.slice.call(input.files);btn.disabled=true;"
+       "return new Promise(function(r){c.toBlob(function(b){r({blob:b,c:c,note:note});},'image/jpeg',0.92);});"
+       "});}"
+       "btn.onclick=function(){"
+       "btn.disabled=true;"
        "var i=0;(function next(){"
-       "if(i>=files.length){log('Done - reloading...');setTimeout(function(){location.reload();},600);return;}"
-       "var f=files[i++];log('Preparing '+i+'/'+files.length+': '+f.name);"
-       "shrink(f).then(function(blob){var fd=new FormData();"
-       "fd.append('f',blob,f.name.replace(/\\.[^.]+$/,'')+'.jpg');"
-       "log('Uploading '+i+'/'+files.length+' ('+Math.round(blob.size/1024)+' KB)...');"
-       "return fetch('/upload',{method:'POST',body:fd});}).then(function(r){"
+       "if(i>=queue.length){log('Done - reloading...');setTimeout(function(){location.reload();},600);return;}"
+       "var q=queue[i++];log('Uploading '+i+'/'+queue.length+' ('+Math.round(q.blob.size/1024)+' KB)...');"
+       "var fd=new FormData();fd.append('f',q.blob,q.name);"
+       "fetch('/upload',{method:'POST',body:fd}).then(function(r){"
        "if(!r.ok)throw new Error('device returned '+r.status);next();"
-       "}).catch(function(e){log('Failed on '+f.name+': '+e.message);btn.disabled=false;});"
-       "})();};"
+       "}).catch(function(e){log('Failed on '+q.name+': '+e.message);btn.disabled=false;});"
+       "})();"
+       "};"
        "function del(i){if(!confirm('Remove this image?'))return;"
        "fetch('/img/delete',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},"
        "body:'idx='+i}).then(function(){location.reload();});}"
@@ -748,6 +793,177 @@ static void handleImageDelete() {
 static void handleImagesClear() {
   Slideshow::removeAll();
   server.send(200, "application/json", "{\"ok\":true}");
+}
+
+// ── Diagnostics ──────────────────────────────────────────────────────────────
+// The board normally runs with nothing attached to USB, so everything the
+// firmware would otherwise only print to Serial is served here too: why it last
+// reset, how much stack each task has left, and how stale each feed's data is.
+// Deliberately no secrets - the iCal URL and Finnhub key never reach this page.
+static const char *resetReasonName(esp_reset_reason_t r) {
+  switch (r) {
+    case ESP_RST_POWERON:   return "power-on";
+    case ESP_RST_EXT:       return "external pin";
+    case ESP_RST_SW:        return "software restart";
+    case ESP_RST_PANIC:     return "panic / exception";
+    case ESP_RST_INT_WDT:   return "interrupt watchdog";
+    case ESP_RST_TASK_WDT:  return "task watchdog";
+    case ESP_RST_WDT:       return "other watchdog";
+    case ESP_RST_DEEPSLEEP: return "deep-sleep wake";
+    case ESP_RST_BROWNOUT:  return "brownout";
+    case ESP_RST_SDIO:      return "SDIO";
+    default:                return "unknown";
+  }
+}
+
+static void ageStr(char *out, size_t n, uint32_t sinceMs, uint32_t nowMs) {
+  if (!sinceMs) { snprintf(out, n, "never"); return; }
+  const uint32_t s = (nowMs - sinceMs) / 1000;
+  if (s < 60)        snprintf(out, n, "%us ago", (unsigned)s);
+  else if (s < 3600) snprintf(out, n, "%um ago", (unsigned)(s / 60));
+  else               snprintf(out, n, "%uh %um ago", (unsigned)(s / 3600), (unsigned)((s % 3600) / 60));
+}
+
+static bool feedReady(uint8_t f) {
+  switch (f) {
+    case DataManager::FEED_WEATHER: return DataManager::weatherReady;
+    case DataManager::FEED_SCORES:  return DataManager::scoresReady;
+    case DataManager::FEED_STOCKS:  return DataManager::stocksReady;
+    case DataManager::FEED_CRYPTO:  return DataManager::cryptoReady;
+    case DataManager::FEED_RACING:  return DataManager::racesReady;
+    case DataManager::FEED_CAL:     return DataManager::calReady;
+    default:                        return false;
+  }
+}
+
+static int feedItems(uint8_t f) {
+  switch (f) {
+    case DataManager::FEED_WEATHER: return DataManager::weatherCityCount;
+    case DataManager::FEED_SCORES:  return DataManager::scoreCount;
+    case DataManager::FEED_STOCKS:  return DataManager::stockCount;
+    case DataManager::FEED_CRYPTO:  return DataManager::cryptoCount;
+    case DataManager::FEED_RACING:  return DataManager::raceCount;
+    case DataManager::FEED_CAL:     return DataManager::calCount;
+    default:                        return 0;
+  }
+}
+
+static void diagRow(String &h, const char *k, const String &v, const char *cls = "") {
+  h += "<div class='r'><span>";
+  h += k;
+  h += "</span><b";
+  if (cls && *cls) { h += " class='"; h += cls; h += "'"; }
+  h += ">";
+  h += v;
+  h += "</b></div>";
+}
+
+static void handleDiagGet() {
+  const uint32_t now = millis();
+  char buf[48];
+  String h;
+  h.reserve(7000);
+  h += "<!DOCTYPE html><html lang='en'><head><meta charset='UTF-8'>"
+       "<meta name='viewport' content='width=device-width,initial-scale=1'>"
+       "<meta http-equiv='refresh' content='10'>"
+       "<title>TickerTouch - Diagnostics</title><style>"
+       "*{box-sizing:border-box;margin:0;padding:0}"
+       "body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0f0f14;color:#e8e8f0;padding:1rem}"
+       ".wrap{max-width:600px;margin:0 auto}h1{font-size:1.15rem;margin:.4rem 0 .1rem}"
+       ".sub{color:#888;font-size:.78rem;margin-bottom:1rem}"
+       ".card{background:#1a1a24;border:1px solid #2a2a3a;border-radius:12px;padding:.9rem 1rem;margin-bottom:.8rem}"
+       ".card>strong{font-size:.72rem;color:#aaa;text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:.5rem}"
+       ".r{display:flex;justify-content:space-between;gap:.8rem;padding:.3rem 0;border-bottom:1px solid #23232f;font-size:.8rem}"
+       ".r:last-child{border-bottom:none}.r span{color:#9a9aa8}"
+       ".r b{font-weight:600;font-variant-numeric:tabular-nums;text-align:right}"
+       ".ok{color:#4ade80}.warn{color:#fbbf24}.bad{color:#f87171}"
+       "a.back{color:#6366f1;font-size:.8rem;text-decoration:none}"
+       "</style></head><body><div class='wrap'>"
+       "<a class='back' href='/'>&larr; Settings</a>"
+       "<h1>Diagnostics</h1><p class='sub'>";
+  h += FW_VERSION;
+  h += " &middot; refreshes every 10s</p>";
+
+  h += "<div class='card'><strong>Build</strong>";
+  diagRow(h, "Version", FW_VERSION);
+  diagRow(h, "Compiled", String(__DATE__) + " " + __TIME__);
+  diagRow(h, "Chip", String(ESP.getChipModel()) + " rev " + String(ESP.getChipRevision()));
+  diagRow(h, "CPU", String(getCpuFrequencyMhz()) + " MHz x " + String(ESP.getChipCores()));
+  {
+    const uint32_t up = now / 1000;
+    snprintf(buf, sizeof(buf), "%ud %uh %um",
+             (unsigned)(up / 86400), (unsigned)((up % 86400) / 3600), (unsigned)((up % 3600) / 60));
+    diagRow(h, "Uptime", buf);
+  }
+  diagRow(h, "Last reset", resetReasonName(esp_reset_reason()));
+  h += "</div>";
+
+  h += "<div class='card'><strong>Memory</strong>";
+  diagRow(h, "Heap free", String((unsigned)(esp_get_free_heap_size() / 1024)) + " KB");
+  {
+    const uint32_t low = heap_caps_get_minimum_free_size(MALLOC_CAP_8BIT);
+    diagRow(h, "Heap low-water", String((unsigned)(low / 1024)) + " KB",
+            low < 40 * 1024 ? "bad" : (low < 80 * 1024 ? "warn" : ""));
+  }
+  diagRow(h, "PSRAM free", String((unsigned)(heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024)) +
+            " KB of " + String((unsigned)(heap_caps_get_total_size(MALLOC_CAP_SPIRAM) / 1024)) + " KB");
+  h += "</div>";
+
+  h += "<div class='card'><strong>Task stack headroom</strong>";
+  struct { const char *name; TaskHandle_t h; } tasks[] = {
+    { "Main (network)", mainTaskHandle },
+    { "LVGL (UI)",      lvglTaskHandle },
+    { "Web (HTTP)",     webTaskHandle  },
+  };
+  for (auto &t : tasks) {
+    if (!t.h) { diagRow(h, t.name, "not running", "bad"); continue; }
+    const uint32_t freeB = (uint32_t)uxTaskGetStackHighWaterMark(t.h) * sizeof(StackType_t);
+    diagRow(h, t.name, String((unsigned)freeB) + " B free",
+            freeB < 2048 ? "bad" : (freeB < 6144 ? "warn" : "ok"));
+  }
+  h += "</div>";
+
+  h += "<div class='card'><strong>Network</strong>";
+  const bool netUp = isConnected();
+  diagRow(h, "WiFi", netUp ? "connected" : "down", netUp ? "ok" : "bad");
+  if (netUp) {
+    diagRow(h, "SSID", WiFi.SSID());
+    diagRow(h, "IP", getIP());
+    const int rssi = WiFi.RSSI();
+    diagRow(h, "Signal", String(rssi) + " dBm", rssi > -67 ? "ok" : (rssi > -78 ? "warn" : "bad"));
+  }
+  h += "</div>";
+
+  h += "<div class='card'><strong>Data feeds</strong>";
+  for (uint8_t f = 0; f < DataManager::FEED_COUNT; f++) {
+    const DataManager::FeedHealth &fh = DataManager::feedHealth[f];
+    const bool ready = feedReady(f);
+    const int items = feedItems(f);
+    char age[24];
+    ageStr(age, sizeof(age), fh.okMs, now);
+    String v = String(items) + (items == 1 ? " item" : " items") + " &middot; " + age;
+    if (!ready)              v += " &middot; waiting";
+    else if (fh.fails)       v += " &middot; " + String(fh.fails) + " failed";
+    diagRow(h, DataManager::feedName(f), v,
+            !ready ? "" : (fh.fails ? "warn" : "ok"));
+  }
+  h += "</div>";
+
+  h += "<div class='card'><strong>Screensaver</strong>";
+  diagRow(h, "Photos", String((int)Slideshow::count()) + " of " + String((int)Slideshow::MAX_IMAGES));
+  diagRow(h, "Photo storage", String((unsigned)(Slideshow::usedBytes() / 1024)) + " KB of " +
+            String((unsigned)(Slideshow::totalBytes() / 1024)) + " KB");
+  diagRow(h, "Free", String((unsigned)(Slideshow::freeBytes() / 1024)) + " KB");
+  diagRow(h, "Sleep after", Storage::cfg.saverSec
+            ? (String((unsigned)(Storage::cfg.saverSec / 60)) + " min") : String("never"));
+  {
+    const bool saver = Screensaver::isActive();
+    diagRow(h, "Showing", saver ? "screensaver" : "dashboard", saver ? "ok" : "");
+  }
+  h += "</div>";
+
+  h += "</div></body></html>";
+  server.send(200, "text/html", h);
 }
 
 static void handleNotFound() {
@@ -819,6 +1035,7 @@ void startSettingsServer() {
   server.on("/upload",  HTTP_POST, handleUploadDone, handleUploadChunk);
   server.on("/img/delete", HTTP_POST, handleImageDelete);
   server.on("/img/clear",  HTTP_POST, handleImagesClear);
+  server.on("/diag",       HTTP_GET,  handleDiagGet);
   server.on("/restart", HTTP_POST, [](){
     server.send(200, "text/plain", "Restarting...");
     delay(500);

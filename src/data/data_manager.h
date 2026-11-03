@@ -92,6 +92,25 @@ extern bool        scoresReady;
 extern bool        stocksReady;
 extern bool        cryptoReady;
 
+// ── Fetch health ─────────────────────────────────────────────────────────────
+// Each feed records when it was last attempted and when it last actually brought
+// data back. Without this a feed that has been failing for an hour still shows
+// yesterday's numbers on screen looking live; /diag turns that into an age.
+enum FeedId { FEED_WEATHER, FEED_SCORES, FEED_STOCKS, FEED_CRYPTO, FEED_RACING, FEED_CAL, FEED_COUNT };
+
+struct FeedHealth {
+  uint32_t tryMs;    // millis() of the last attempt, 0 = never tried
+  uint32_t okMs;     // millis() when data last arrived, 0 = never succeeded
+  uint16_t fails;    // consecutive attempts that returned nothing
+};
+
+extern FeedHealth feedHealth[FEED_COUNT];
+
+const char *feedName(uint8_t feed);
+void noteTry(uint8_t feed);
+void noteOk(uint8_t feed);
+void noteFail(uint8_t feed);
+
 void begin();
 void tick();
 void fetchSports();
