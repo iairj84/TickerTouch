@@ -2,59 +2,60 @@
 <html>
 <head>
     <meta charset="utf-8">
-    <title>TickerTouch — Backup and Night Dimming</title>
+    <title>TickerTouch — Feed Tests and Collapsible Settings</title>
     <style>
         body { font-family: sans-serif; text-align: center; padding: 50px; }
         button { padding: 15px 25px; font-size: 18px; cursor: pointer; }
-        .warn { max-width: 560px; margin: 24px auto; color: #7a4a00; background: #fff4e0;
-                border: 1px solid #f0c37a; border-radius: 8px; padding: 14px; text-align: left; }
-        .keep { max-width: 560px; margin: 24px auto; color: #14532d; background: #ecfdf5;
+        .what { max-width: 580px; margin: 24px auto; color: #1e3a8a; background: #eff6ff;
+                border: 1px solid #93c5fd; border-radius: 8px; padding: 14px; text-align: left; }
+        .keep { max-width: 580px; margin: 24px auto; color: #14532d; background: #ecfdf5;
                 border: 1px solid #86efac; border-radius: 8px; padding: 14px; text-align: left; }
-        .fine { color: #666; font-size: 14px; }
-        .note { max-width: 560px; margin: 24px auto; text-align: left; color: #333;
+        .note { max-width: 580px; margin: 24px auto; text-align: left; color: #333;
                 background: #f4f4f8; border: 1px solid #ddd; border-radius: 8px; padding: 14px; }
+        .fine { color: #666; font-size: 14px; }
     </style>
 </head>
 <body>
-    <h1>TickerTouch — Backup and Night Dimming</h1>
-    <p>Version 1.8.0 — this is <strong>not</strong> the default firmware.</p>
+    <h1>TickerTouch — Feed Tests and Collapsible Settings</h1>
+    <p>Version 1.9.0 — this is <strong>not</strong> the default firmware.</p>
 
-    <p class="warn">
-        <strong>Backup.</strong> Settings can now be downloaded as a single JSON file and restored
-        later. That removes the standing risk in every install page: erasing the device wipes the
-        WiFi credentials, city, leagues, both calendar URLs and the icon choices, and until now
-        there was no way back except retyping them.<br><br>
-        <strong>Night brightness.</strong> A second, dimmer level for a window of the day — by
-        default 22:00 to 07:00 — with its own level. The normal brightness slider is unchanged;
-        the dim level simply takes over inside the window.
+    <p class="what">
+        <strong>Fetch now.</strong> Each calendar URL, the stock tickers and the crypto list now
+        have their own <em>Fetch now</em> button, with the result printed underneath: how many
+        events came back from each calendar, the next event, the parsed prices, or a plain
+        statement that the fetch failed. A mistyped or private calendar link used to fail
+        silently until the next scheduled refresh, which looked identical to a working feed
+        with nothing on today.<br><br>
+        <strong>Collapsible sections.</strong> The settings page now shows section headings that
+        open on tap, so the fields you came for are not buried under sports filters. Open
+        sections are remembered between visits and survive a save.
     </p>
 
     <p class="keep">
-        <strong>Keep your settings:</strong> this installer asks whether to erase the device
-        before flashing. <strong>Leave erase off</strong> — or download a backup from the settings
-        page afterwards and keep it somewhere private, since the file contains your secret
-        calendar URLs.
+        <strong>Keep your settings:</strong> the installer asks whether to erase the device.
+        <strong>Leave erase off</strong> — erasing wipes WiFi, city, leagues, both calendar URLs
+        and the icon choices.
     </p>
 
     <div class="note">
         <strong>What to check after installing</strong>
         <ul style="margin:8px 0 0 18px; padding:0; line-height:1.7">
-            <li>Settings now has a <b>Night brightness</b> section and a <b>Backup</b> section.</li>
-            <li>Download the file, then upload it back — it should report that settings were restored.</li>
-            <li>Set the night window to a minute or two in the future to watch the panel dim.</li>
-            <li>The calendar, stocks and sports sections should be exactly as they were.</li>
+            <li>Settings opens with the sections collapsed; tapping a heading opens it.</li>
+            <li><b>Calendar &rarr; Fetch now</b> reports a count for each calendar and the next event.</li>
+            <li>Deliberately break calendar 2's URL, fetch, and confirm it says that feed parsed nothing.</li>
+            <li><b>Stocks &rarr; Fetch now</b> lists the parsed prices.</li>
+            <li>Save the form, come back, and confirm the section you were editing is still open.</li>
         </ul>
     </div>
 
     <p class="fine">
-        Night dimming is evaluated on the device clock, so it follows the timezone the panel is
-        using — check <code>/diag</code> if the window fires at the wrong hour. A window that runs
-        past midnight is handled, which is the normal case.
+        The fetch itself still runs on the device's data task, so a slow feed takes its time
+        without freezing the page. The button waits up to 45 seconds and then says so.
     </p>
 
     <script type="module" src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"></script>
 
-    <esp-web-install-button manifest="./manifest-1_8_0c.json">
+    <esp-web-install-button manifest="./manifest-1_9_0c.json">
         <button slot="activate">Connect and Install</button>
         <span slot="unsupported">Your browser does not support Web Serial — use Chrome or Edge on desktop.</span>
         <span slot="not-allowed">Web Serial needs HTTPS (this page is) and a direct connection.</span>

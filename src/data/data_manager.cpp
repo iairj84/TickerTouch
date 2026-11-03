@@ -2198,6 +2198,23 @@ void fetchCalendar() {
 }
 
 
+// ── On-demand refresh ────────────────────────────────────────────────────────
+// One bit per feed, set by the web task and consumed by tick(). Static rather
+// than a queue because each feed can only be in flight once anyway.
+static volatile uint8_t  _feedReq = 0;
+static volatile uint32_t _feedDoneAt[FEED_COUNT] = {0};
+
+bool requestFeed(uint8_t feed) {
+  if (feed >= FEED_COUNT) return false;
+  if (_feedReq & (1u << feed)) return false;   // already queued
+  _feedReq = (uint8_t)(_feedReq | (1u << feed));
+  return true;
+}
+
+uint32_t feedReqDoneMs(uint8_t feed) {
+  return feed >= FEED_COUNT ? 0 : _feedDoneAt[feed];
+}
+
 void forceRefresh() {
   Serial.println(F("[Data] forceRefresh"));
   if (Storage::cfg.lat==0.0f&&Storage::cfg.lon==0.0f) geocodeCity();
@@ -2229,6 +2246,31 @@ void begin() {
 
 void tick() {
   uint32_t n = millis();
+
+  // A queued request jumps ahead of the periodic work, and re-bases that feed's
+  // timer so testing a URL does not leave the schedule firing twice.
+  if (_feedReq) {
+    const uint8_t f = (uint8_t)__builtin_ctz((unsigned)_feedReq);
+    _feedReq = (uint8_t)(_feedReq & ~(1u << f));
+    switch (f) {
+      case FEED_WEATHER: lastWeather  = n; fetchWeather(); break;
+      case FEED_SCORES:  lastSports   = n;
+                         if (time(nullptr) >= 100000) fetchSports();
+                         else noteFail(FEED_SCORES);
+                         break;
+      case FEED_STOCKS:  lastStocks   = n; fetchStocks();  break;
+      case FEED_CRYPTO:  lastCrypto   = n; fetchCrypto();  break;
+      case FEED_RACING:  lastRacing   = n; fetchRacing();  break;
+      case FEED_CAL:     lastCalendar = n;
+                         if (time(nullptr) >= 100000) fetchCalendar();
+                         else noteFail(FEED_CAL);   // clock not set: "today" is 1970
+                         break;
+      default: break;
+    }
+    _feedDoneAt[f] = millis();
+    return;
+  }
+
   if ((n-lastWeather) >=REFRESH_WEATHER_MS)  { lastWeather =millis(); fetchWeather();  return; }
   if ((n-lastCalendar)>=REFRESH_CALENDAR_MS) {
     if (time(nullptr) < 100000) { lastCalendar = n - REFRESH_CALENDAR_MS + 5000; return; }

@@ -152,6 +152,16 @@ static const char SAVED_HTML[] PROGMEM = R"HTML(
 </head><body><div><div style="font-size:3rem">✅</div><h1>Connected!</h1><p style="color:#888;margin-top:.5rem">Restarting...</p></div></body></html>
 )HTML";
 
+// "Fetch now" button + the line beneath it that reports what came back. The feed
+// name rides in a data attribute so no inline JS quoting is needed.
+static void addFetchButton(String &h, const char *feed, const char *label) {
+  h += F("<button type='button' class='tf-btn' data-feed='");
+  h += feed;
+  h += F("'>");
+  h += label;
+  h += F("</button><span class='tf-out'></span>");
+}
+
 // ── Settings page (served while connected) ────────────────────────────────────
 static String settingsPage() {
   String h = F("<!DOCTYPE html><html><head><meta charset='UTF-8'>"
@@ -174,6 +184,17 @@ static String settingsPage() {
     ".btn{display:block;width:100%;margin-top:1.25rem;padding:.7rem;background:#6366f1;color:#fff;border:none;border-radius:8px;font-size:.95rem;font-weight:600;cursor:pointer}"
     ".btn:hover{background:#4f46e5}"
     ".info{background:#12121a;border:1px solid #2a2a3a;border-radius:6px;padding:.6rem;font-size:.75rem;color:#6366f1;margin-top:.5rem}"
+    ".secbody{display:none}"
+    ".section.open .secbody{display:block}"
+    ".sechdr{display:flex;align-items:center;gap:.5rem;width:100%;padding:0;background:none;border:none;"
+    "color:#aaa;font-size:.75rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em;"
+    "cursor:pointer;text-align:left}"
+    ".sechdr .car{color:#6366f1;font-size:.7rem;display:inline-block;transition:transform .15s}"
+    ".section.open .sechdr .car{transform:rotate(90deg)}"
+    ".tf-btn{margin-top:.45rem;padding:.4rem .75rem;background:#232336;border:1px solid #2a2a3a;"
+    "border-radius:6px;color:#c7c7d6;font-size:.78rem;cursor:pointer}"
+    ".tf-btn:disabled{opacity:.5;cursor:default}"
+    ".tf-out{display:block;font-size:.75rem;color:#9aa0b4;margin-top:.35rem;line-height:1.5}"
     "</style></head><body><div class='card'>"
     "<div style='font-size:1.5rem;margin-bottom:.3rem'>📊</div>"
     "<h1>TickerTouch Settings</h1>");
@@ -329,11 +350,13 @@ static String settingsPage() {
   h += Storage::cfg.stocks;
   h += "'>";
   h += "<small style='color:#888'>US stocks &amp; ETFs. Prices via Yahoo Finance - no API key needed.</small>";
+  addFetchButton(h, "stocks", "Fetch now");
   h += "<label style='margin-top:8px'>Crypto (CoinGecko IDs, e.g. bitcoin,ethereum,solana)</label>";
   h += "<input type='text' name='crypto' value='";
   h += Storage::cfg.crypto;
   h += "'>";
   h += "<small style='color:#888'>Free, no API key. Use CoinGecko IDs: bitcoin, ethereum, solana, dogecoin, cardano, ripple, etc.</small>";
+  addFetchButton(h, "crypto", "Fetch now");
   h += "</div>";
 
   // Theme + Display
@@ -393,6 +416,7 @@ static String settingsPage() {
     h += ">"; h += iconNames[i]; h += "</option>";
   }
   h += "</select>";
+  addFetchButton(h, "cal1", "Fetch now");
 
   h += "<label style='margin-top:10px'>Calendar 2 &mdash; iCal URL <small style='color:#888'>(optional)</small></label>";
   h += "<input type='text' name='icalUrl2' placeholder='Leave blank to show only one calendar' value='";
@@ -405,6 +429,7 @@ static String settingsPage() {
     h += ">"; h += iconNames[i]; h += "</option>";
   }
   h += "</select>";
+  addFetchButton(h, "cal2", "Fetch now");
   h += "<small style='color:#888'>Events from the second calendar get their own colour and icon, "
        "so a work entry never reads as a personal one. An event that appears in both "
        "with the same name and time is shown once.</small>";
@@ -495,6 +520,38 @@ static String settingsPage() {
        "fetch('/restart',{method:'POST'});}\">"
        "Restart Device</button>";
   h += "</form>";
+  // Page furniture: collapsible sections and the wiring for the fetch buttons.
+  // Sections collapse so a first-time user meets eight headings instead of thirty
+  // fields, and the state is remembered so saving the form does not close the one
+  // section being edited.
+  h += "<script>(function(){var K='ttSec',open={};"
+       "try{open=JSON.parse(localStorage.getItem(K)||'{}');}catch(e){}"
+       "var stored=Object.keys(open).length>0;"
+       "[].slice.call(document.querySelectorAll('.section')).forEach(function(s,idx){"
+       "var head=s.querySelector('strong');if(!head)return;"
+       "var t=head.textContent.trim();"
+       "var body=document.createElement('div');body.className='secbody';"
+       "while(head.nextSibling)body.appendChild(head.nextSibling);"
+       "var btn=document.createElement('button');btn.type='button';btn.className='sechdr';"
+       "btn.innerHTML='<span class=\"car\">&#9656;</span><span>'+head.innerHTML+'</span>';"
+       "head.parentNode.removeChild(head);"
+       "s.insertBefore(btn,s.firstChild);s.appendChild(body);"
+       "if(stored?open[t]:idx===0)s.classList.add('open');"
+       "btn.onclick=function(){open[t]=s.classList.toggle('open');"
+       "try{localStorage.setItem(K,JSON.stringify(open));}catch(e){}};});"
+       "function ttTest(feed,btn){"
+       "var out=btn.nextElementSibling;btn.disabled=true;out.textContent='Fetching...';"
+       "fetch('/test?feed='+feed).then(function(r){return r.text();}).then(function(t){"
+       "var since=t.split('|')[1],tries=0;"
+       "(function poll(){if(++tries>45){out.textContent='Still waiting - a feed is slow to answer.';"
+       "btn.disabled=false;return;}"
+       "setTimeout(function(){fetch('/test?feed='+feed+'&since='+since)"
+       ".then(function(r){return r.text();}).then(function(tt){var p=tt.split('|');"
+       "if(p[0]==='done'){out.textContent=p.slice(2).join('|');btn.disabled=false;}else poll();"
+       "}).catch(function(){poll();});},1000);})();"
+       "}).catch(function(e){out.textContent='Request failed: '+e;btn.disabled=false;});}"
+       "document.querySelectorAll('.tf-btn').forEach(function(b){"
+       "b.onclick=function(){ttTest(b.dataset.feed,b);};});})();</script>";
   h += "<div style='text-align:center;margin-top:1rem;font-size:.8rem'>"
        "<a href='/diag' style='color:#6366f1;text-decoration:none'>Device diagnostics &rarr;</a></div>";
   h += "</div></body></html>";
@@ -1224,6 +1281,113 @@ static uint16_t parseHm(const String &s, uint16_t fallback) {
   return (uint16_t)(hh * 60 + mm);
 }
 
+// What a "Fetch now" actually produced. Built from what the panels render, so it
+// proves the feed parsed rather than merely that the socket opened.
+static void feedSummary(uint8_t feed, String &s) {
+  const DataManager::FeedHealth &fh = DataManager::feedHealth[feed];
+  if (fh.okMs == 0 || fh.fails > 0) {
+    s = F("Fetch failed");
+    if (fh.fails) { s += " ("; s += fh.fails; s += " in a row)"; }
+    s += F(" - check the network and the address.");
+    return;
+  }
+
+  if (feed == DataManager::FEED_CAL) {
+    int c1 = 0, c2 = 0;
+    for (int i = 0; i < (int)DataManager::calCount; i++) {
+      if (DataManager::calEvents[i].calIdx == 0) c1++; else c2++;
+    }
+    s = "Calendar 1: "; s += c1; s += " events  |  Calendar 2: "; s += c2; s += " events.";
+    if (DataManager::calCount) {
+      s += "  Next: ";
+      s += DataManager::calEvents[0].title;
+      s += " ";
+      s += DataManager::calEvents[0].timeStr;
+    }
+    // A feed that is configured but contributed nothing is the mistyped-URL case,
+    // and it looks exactly like a working feed until you notice the count is zero.
+    if (Storage::cfg.icalUrl[0] && c1 == 0)
+      s += F("  Calendar 1 is set but parsed nothing - is the link a public .ics?");
+    if (Storage::cfg.icalUrl2[0] && c2 == 0)
+      s += F("  Calendar 2 is set but parsed nothing - is the link a public .ics?");
+    return;
+  }
+
+  if (feed == DataManager::FEED_STOCKS) {
+    if (!DataManager::stockCount) { s = F("Fetch worked but no prices parsed - check the tickers."); return; }
+    char b[48];
+    s = "";
+    for (int i = 0; i < (int)DataManager::stockCount && i < 4; i++) {
+      snprintf(b, sizeof(b), "%s%s %.2f %+.2f%%", i ? "  |  " : "",
+               DataManager::stocks[i].symbol, DataManager::stocks[i].price,
+               DataManager::stocks[i].changePercent);
+      s += b;
+    }
+    if (DataManager::stockCount > 4) { s += "  |  +"; s += (int)(DataManager::stockCount - 4); s += " more"; }
+    return;
+  }
+
+  if (feed == DataManager::FEED_CRYPTO) {
+    if (!DataManager::cryptoCount) { s = F("Fetch worked but no coins parsed - check the CoinGecko IDs."); return; }
+    char b[48];
+    s = "";
+    for (int i = 0; i < (int)DataManager::cryptoCount && i < 4; i++) {
+      snprintf(b, sizeof(b), "%s%s $%.2f %+.2f%%", i ? "  |  " : "",
+               DataManager::cryptos[i].symbol, DataManager::cryptos[i].priceUSD,
+               DataManager::cryptos[i].change24h);
+      s += b;
+    }
+    return;
+  }
+
+  if (feed == DataManager::FEED_WEATHER) {
+    s = DataManager::weather.city;
+    s += ": ";
+    s += String(DataManager::weather.tempF, 1);
+    s += "F, ";
+    s += DataManager::weather.description;
+    return;
+  }
+
+  if (feed == DataManager::FEED_SCORES) { s = (int)DataManager::scoreCount; s += " games."; return; }
+
+  s = F("Done.");
+}
+
+// Two-step by design: this queues the fetch and hands back a timestamp, then the
+// page polls with ?since= until the data task reports it finished. The request
+// never blocks the web server, which is what lets a slow feed take 40s without
+// making the settings page unresponsive.
+static void handleFeedTest() {
+  const String what = server.arg("feed");
+  uint8_t feed = 0xFF;
+  if (what == "cal1" || what == "cal2") feed = DataManager::FEED_CAL;
+  else if (what == "stocks")  feed = DataManager::FEED_STOCKS;
+  else if (what == "crypto")  feed = DataManager::FEED_CRYPTO;
+  else if (what == "weather") feed = DataManager::FEED_WEATHER;
+  else if (what == "sports")  feed = DataManager::FEED_SCORES;
+  if (feed == 0xFF) { server.send(400, "text/plain", "done|bad|Unknown feed."); return; }
+
+  if (!server.hasArg("since")) {
+    DataManager::requestFeed(feed);
+    String out = F("pending|");
+    out += (unsigned long)millis();
+    server.send(200, "text/plain", out);
+    return;
+  }
+
+  const uint32_t since = (uint32_t)strtoul(server.arg("since").c_str(), nullptr, 10);
+  if ((int32_t)(DataManager::feedReqDoneMs(feed) - since) < 0) {
+    server.send(200, "text/plain", F("pending|0"));
+    return;
+  }
+  String s = F("done|ok|");
+  String body;
+  feedSummary(feed, body);
+  s += body;
+  server.send(200, "text/plain", s);
+}
+
 static void handleSettingsBackup() {
   StaticJsonDocument<2048> d;
   UserConfig &c = Storage::cfg;
@@ -1400,6 +1564,7 @@ void startSettingsServer() {
   server.on("/cal",        HTTP_GET,  handleCalDebug);
   server.on("/settings.json", HTTP_GET, handleSettingsBackup);
   server.on("/restore",       HTTP_POST, handleSettingsRestore);
+  server.on("/test",          HTTP_GET,  handleFeedTest);
   server.on("/restart", HTTP_POST, [](){
     server.send(200, "text/plain", "Restarting...");
     delay(500);

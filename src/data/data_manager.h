@@ -158,6 +158,15 @@ const char *tzZoneName();
 int32_t     tzOffsetNow();
 void geocodeCity();
 void forceRefresh();
+
+// ── On-demand refresh ────────────────────────────────────────────────────────
+// The settings page's "Fetch now" buttons only queue a bit; the fetch itself
+// runs on the data task, because an HTTPS request needs far more stack than the
+// 12KB web task has. feedReqDoneMs() is the millis() the queued fetch returned,
+// which is how the page knows its answer has arrived and is fresh.
+bool     requestFeed(uint8_t feed);
+uint32_t feedReqDoneMs(uint8_t feed);
+
 const char* buildTickerString();
 
 } // namespace DataManager
