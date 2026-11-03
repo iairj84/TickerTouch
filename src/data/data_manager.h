@@ -97,6 +97,7 @@ struct CalDebugEvent {
   char dtstart[24];
   char recid[24];    // RECURRENCE-ID: the date an edited instance came from
   char status[12];   // CANCELLED, TENTATIVE, CONFIRMED
+  char tzid[40];     // the zone DTSTART was written in, if the feed named one
   bool hasRule;      // the block carries an RRULE
   uint8_t feed;      // 0 = first calendar, 1 = second
 };

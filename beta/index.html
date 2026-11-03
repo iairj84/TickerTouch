@@ -2,7 +2,7 @@
 <html>
 <head>
     <meta charset="utf-8">
-    <title>TickerTouch — Timezone Control</title>
+    <title>TickerTouch — Calendar Hours</title>
     <style>
         body { font-family: sans-serif; text-align: center; padding: 50px; }
         button { padding: 15px 25px; font-size: 18px; cursor: pointer; }
@@ -16,17 +16,19 @@
     </style>
 </head>
 <body>
-    <h1>TickerTouch — Timezone Control</h1>
-    <p>Version 1.7.0 — this is <strong>not</strong> the default firmware.</p>
+    <h1>TickerTouch — Calendar Hours</h1>
+    <p>Version 1.7.1 — this is <strong>not</strong> the default firmware.</p>
 
     <p class="warn">
-        The clock and the calendar take their timezone from an IP lookup. When that lookup is
-        wrong — a VPN, a phone hotspot, an address the database maps to another state — the whole
-        device sits in the wrong zone. After a daylight-saving change that shows up as everything
-        being an hour out, while entries the feed sends as plain local time still look right.<br><br>
-        Settings now has a <strong>Timezone</strong> dropdown, so the zone can be set directly
-        instead of hoped for. /diag also gained a <strong>Time</strong> card that states the zone
-        in use, the offset it is applying, and what the clock and UTC each read.
+        Two things could put a calendar entry exactly one hour out, and this build addresses both.<br><br>
+        <strong>The zone the feed writes in.</strong> A calendar can stamp its times in its own
+        timezone (<code>DTSTART;TZID=America/Denver:...</code>). That parameter was being thrown away,
+        so a calendar set to a different zone than the panel read an hour or three out. It is now read
+        and converted properly.<br><br>
+        <strong>The panel's own zone.</strong> That still comes from an IP lookup, which is wrong if
+        your address resolves somewhere else. Settings now has a <strong>Timezone</strong> dropdown,
+        and <code>/diag</code> has a <strong>Time</strong> card that states the zone in use, the
+        offset being applied, and what the clock and UTC each read.
     </p>
 
     <p class="keep">
@@ -38,22 +40,23 @@
     <div class="note">
         <strong>What to check after installing</strong>
         <ul style="margin:8px 0 0 18px; padding:0; line-height:1.7">
-            <li>Open <code>/diag</code> and read the Time card.</li>
-            <li>If <b>Zone</b> is not yours, set it in Settings &rarr; Display &rarr; Timezone.</li>
-            <li>Restart from the settings page, then re-check the Time card.</li>
-            <li>Calendar entries and the header clock should now agree with your phone.</li>
+            <li>Open <code>/diag</code>: the Time card should name your zone and the right offset.</li>
+            <li>If that zone is not yours, set it in Settings &rarr; Display &rarr; Timezone and restart.</li>
+            <li>Open <code>/cal</code>: each block now shows the <b>zone</b> it was written in, if the
+                feed names one — the quickest way to see which calendar is causing the shift.</li>
+            <li>Calendar entries should now match your phone, in both calendars.</li>
         </ul>
     </div>
 
     <p class="fine">
-        A wrong zone and a wrong conversion look identical from the outside, which is why the page
-        reports what the device is actually applying rather than what it was told. If the zone is
-        right and entries are still out, that narrows it to the feed's own timestamps.
+        Entries with no zone and no UTC marker are left exactly as the feed wrote them, which is
+        correct: those are already local wall-clock times. If an entry is still out after this,
+        the <code>/cal</code> zone column says which one to look at.
     </p>
 
     <script type="module" src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"></script>
 
-    <esp-web-install-button manifest="./manifest-1_7_0c.json">
+    <esp-web-install-button manifest="./manifest-1_7_1c.json">
         <button slot="activate">Connect and Install</button>
         <span slot="unsupported">Your browser does not support Web Serial — use Chrome or Edge on desktop.</span>
         <span slot="not-allowed">Web Serial needs HTTPS (this page is) and a direct connection.</span>

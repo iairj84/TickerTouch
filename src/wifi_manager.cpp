@@ -1118,6 +1118,7 @@ static void handleCalDebug() {
     h += "</b><span class='k'>starts</span> <span class='v'>";
     h += e->dtstart;
     h += "</span>";
+    if (e->tzid[0])  { h += " &middot; <span class='k'>zone</span> <span class='v'>"; h += e->tzid; h += "</span>"; }
     if (e->recid[0]) { h += " &middot; <span class='k'>was</span> <span class='v'>"; h += e->recid; h += "</span>"; }
     if (e->status[0])  { h += " &middot; <span class='k'>status</span> <span class='v'>"; h += e->status; h += "</span>"; }
     if (e->hasRule)    h += " &middot; <span class='k'>repeats</span>";

@@ -1188,7 +1188,7 @@ static uint8_t _calDebugCount = 0;   // how many slots are in use
 static uint8_t _calDebugNext  = 0;   // where the next block is written
 
 static void debugPush(const char *title, const char *dtstart, const char *recid,
-                      const char *status, bool hasRule, uint8_t feed) {
+                      const char *status, const char *tzid, bool hasRule, uint8_t feed) {
   CalDebugEvent &e = _calDebug[_calDebugNext];
   strlcpy(e.title,   title,   sizeof(e.title));
   strlcpy(e.dtstart, dtstart, sizeof(e.dtstart));
@@ -1196,6 +1196,7 @@ static void debugPush(const char *title, const char *dtstart, const char *recid,
   strlcpy(e.status,  status,  sizeof(e.status));
   e.hasRule = hasRule;
   e.feed    = feed;
+  strlcpy(e.tzid, tzid ? tzid : "", sizeof(e.tzid));
   _calDebugNext = (uint8_t)((_calDebugNext + 1) % CAL_DEBUG_SLOTS);
   if (_calDebugCount < CAL_DEBUG_SLOTS) _calDebugCount++;
 }
@@ -1284,6 +1285,150 @@ static bool utcToLocal(int y, int m, int d, int h, int mi,
   lh  = lt.tm_hour;
   lmi = lt.tm_min;
   dayShift = (int)civilDays(ly, lm, ld) - (int)days;
+  return true;
+}
+
+// ── Zone offsets ────────────────────────────────────────────────────────────
+// A feed may stamp DTSTART in its own zone (TZID=...). Converting that wall clock
+// needs the offset that zone had on that date, which is a different question from
+// the offset ours has today. These rules mirror the POSIX strings the clock uses.
+enum : uint8_t { ZRULE_NONE = 0, ZRULE_US, ZRULE_EU, ZRULE_SOUTH };
+
+static const struct { const char *name; int16_t baseMin; uint8_t rule; } ZONES[] = {
+  {"America/Los_Angeles", -480, ZRULE_US},
+  {"America/Vancouver",   -480, ZRULE_US},
+  {"America/Tijuana",     -480, ZRULE_US},
+  {"America/Denver",      -420, ZRULE_US},
+  {"America/Edmonton",    -420, ZRULE_US},
+  {"America/Phoenix",     -420, ZRULE_NONE},
+  {"America/Chicago",     -360, ZRULE_US},
+  {"America/Winnipeg",    -360, ZRULE_US},
+  {"America/Mexico_City", -360, ZRULE_NONE},
+  {"America/New_York",    -300, ZRULE_US},
+  {"America/Toronto",     -300, ZRULE_US},
+  {"America/Detroit",     -300, ZRULE_US},
+  {"America/Anchorage",   -540, ZRULE_US},
+  {"Pacific/Honolulu",    -600, ZRULE_NONE},
+  {"Europe/London",          0, ZRULE_EU},
+  {"Europe/Dublin",          0, ZRULE_EU},
+  {"Europe/Berlin",         60, ZRULE_EU},
+  {"Europe/Paris",          60, ZRULE_EU},
+  {"Europe/Madrid",         60, ZRULE_EU},
+  {"Europe/Rome",           60, ZRULE_EU},
+  {"Europe/Amsterdam",      60, ZRULE_EU},
+  {"Australia/Sydney",     600, ZRULE_SOUTH},
+  {"Asia/Tokyo",           540, ZRULE_NONE},
+};
+static const int ZONE_COUNT = (int)(sizeof(ZONES) / sizeof(ZONES[0]));
+
+static void civilFromDays(uint32_t z, int &y, int &m, int &d) {
+  z += 719468;
+  const uint32_t era = z / 146097;
+  const uint32_t doe = z - era * 146097;
+  const uint32_t yoe = (doe - doe/1460 + doe/36524 - doe/146096) / 365;
+  const uint32_t yy  = yoe + era * 400;
+  const uint32_t doy = doe - (365*yoe + yoe/4 - yoe/100);
+  const uint32_t mp  = (5*doy + 2) / 153;
+  d = (int)(doy - (153*mp + 2)/5 + 1);
+  m = (int)(mp < 10 ? mp + 3 : mp - 9);
+  y = (int)(yy + (m <= 2));
+}
+
+static int monthLen(int y, int m) {
+  static const uint8_t L[] = {31,28,31,30,31,30,31,31,30,31,30,31};
+  if (m == 2 && ((y % 4 == 0 && y % 100 != 0) || y % 400 == 0)) return 29;
+  return L[(m >= 1 && m <= 12) ? m - 1 : 0];
+}
+
+static int weekdayOf(uint32_t days);   // defined just below this block
+
+// Day of month for the 1st..5th weekday, or the last one when ordinal is -1.
+static int nthWeekdayOfMonth(int y, int m, int wd, int ordinal) {
+  const int dim = monthLen(y, m);
+  if (ordinal > 0) {
+    const int first = (wd - weekdayOf(civilDays(y, m, 1)) + 7) % 7 + 1;
+    return first + (ordinal - 1) * 7;
+  }
+  const int lastWd = weekdayOf(civilDays(y, m, dim));
+  return dim - ((lastWd - wd + 7) % 7);
+}
+
+// Accepts the bare zone name, or one embedded in a longer TZID such as
+// "/freeassociation.sourceforge.net/Tzfile/America/New_York".
+static bool zoneBase(const char *name, int16_t &baseMin, uint8_t &rule) {
+  if (!name || !name[0]) return false;
+  const size_t sl = strlen(name);
+  for (int i = 0; i < ZONE_COUNT; i++) {
+    const size_t nl = strlen(ZONES[i].name);
+    if (sl >= nl && strcasecmp(name + (sl - nl), ZONES[i].name) == 0) {
+      baseMin = ZONES[i].baseMin;
+      rule    = ZONES[i].rule;
+      return true;
+    }
+  }
+  return false;
+}
+
+static int32_t zoneOffsetAt(const char *name, int64_t epochUtc) {
+  int16_t baseMin = 0;
+  uint8_t rule = ZRULE_NONE;
+  if (!zoneBase(name, baseMin, rule)) return 0;
+  const int32_t base = (int32_t)baseMin * 60;
+  if (rule == ZRULE_NONE) return base;
+
+  int y, m, d;
+  civilFromDays((uint32_t)((epochUtc + base) / 86400), y, m, d);
+
+  if (rule == ZRULE_US) {
+    // 2nd Sunday March 02:00 standard -> 1st Sunday November 02:00 daylight.
+    const int64_t start = (int64_t)civilDays(y, 3, nthWeekdayOfMonth(y, 3, 0, 2)) * 86400
+                        + 2*3600 - base;
+    const int64_t end   = (int64_t)civilDays(y, 11, nthWeekdayOfMonth(y, 11, 0, 1)) * 86400
+                        + 1*3600 - base;
+    return (epochUtc >= start && epochUtc < end) ? base + 3600 : base;
+  }
+  if (rule == ZRULE_EU) {
+    const int64_t start = (int64_t)civilDays(y, 3, nthWeekdayOfMonth(y, 3, 0, -1)) * 86400 + 3600;
+    const int64_t end   = (int64_t)civilDays(y, 10, nthWeekdayOfMonth(y, 10, 0, -1)) * 86400 + 3600;
+    return (epochUtc >= start && epochUtc < end) ? base + 3600 : base;
+  }
+  // Southern hemisphere: daylight spans the new year.
+  const int64_t start = (int64_t)civilDays(y, 10, nthWeekdayOfMonth(y, 10, 0, 1)) * 86400
+                      + 2*3600 - base;
+  const int64_t end   = (int64_t)civilDays(y, 4, nthWeekdayOfMonth(y, 4, 0, 1)) * 86400
+                      + 2*3600 - (base + 3600);
+  return (epochUtc >= start || epochUtc < end) ? base + 3600 : base;
+}
+
+// Turn an event's own wall clock into ours: UTC values and TZID values are both
+// converted, floating values are already local. Unknown zones keep the old
+// behaviour rather than inventing an offset.
+static bool resolveEventTime(const char *tzid, bool isUtc,
+                             int y, int m, int d, int h, int mi,
+                             int &ly, int &lm, int &ld, int &lh, int &lmi, int &shift) {
+  ly = y; lm = m; ld = d; lh = h; lmi = mi; shift = 0;
+  if (isUtc) return utcToLocal(y, m, d, h, mi, ly, lm, ld, lh, lmi, shift);
+  if (!tzid || !tzid[0]) return true;
+  int16_t baseMin = 0;
+  uint8_t rule = ZRULE_NONE;
+  if (!zoneBase(tzid, baseMin, rule)) return true;
+
+  const int64_t wall = (int64_t)civilDays(y, m, d) * 86400 + (int64_t)h * 3600 + (int64_t)mi * 60;
+  int32_t off = zoneOffsetAt(tzid, wall);
+  int64_t utc = wall - off;
+  const int32_t off2 = zoneOffsetAt(tzid, utc);   // settle the hour around a switch
+  if (off2 != off) utc = wall - off2;
+
+  int64_t days = utc / 86400;
+  int sod = (int)(utc - days * 86400);
+  if (sod < 0) { sod += 86400; days -= 1; }
+  int uy, um, ud;
+  civilFromDays((uint32_t)days, uy, um, ud);
+  int ty, tmo, td, th, tmi2, tsh;
+  if (!utcToLocal(uy, um, ud, sod / 3600, (sod % 3600) / 60, ty, tmo, td, th, tmi2, tsh))
+    return true;
+  ly = ty; lm = tmo; ld = td; lh = th; lmi = tmi2;
+  shift = (int)civilDays(ly, lm, ld) - (int)civilDays(y, m, d);
   return true;
 }
 
@@ -1538,6 +1683,7 @@ static bool calFetchFeed(const char *calUrl, uint8_t feedIdx,
   char curRecId[24] = {};       // RECURRENCE-ID: the date the instance came from
   char curStatus[12] = {};      // STATUS: CANCELLED, TENTATIVE, CONFIRMED
   char curUid[40] = {};         // UID: stable identity of a series
+  char curTzid[40] = {};        // TZID param on DTSTART: the zone its clock is in
   bool curIsOverride = false;   // this VEVENT edits one instance of a series
   int totalBytes = 0;
 
@@ -1555,7 +1701,7 @@ static bool calFetchFeed(const char *calUrl, uint8_t feedIdx,
     if (strcmp(l, "BEGIN:VEVENT") == 0) {
       inEvent = true; curTitle[0] = '\0'; curDtStart[0] = '\0';
       curRRule[0] = '\0'; curExdate[0] = '\0'; curRecId[0] = '\0';
-      curStatus[0] = '\0'; curUid[0] = '\0';
+      curStatus[0] = '\0'; curUid[0] = '\0'; curTzid[0] = '\0';
       curIsOverride = false;
     } else if (strcmp(l, "END:VEVENT") == 0 && inEvent) {
       inEvent = false;
@@ -1575,7 +1721,8 @@ static bool calFetchFeed(const char *calUrl, uint8_t feedIdx,
 
       // Trace every block, including the ones dropped below, so /cal can answer
       // "why is this on screen" without access to the feed itself.
-      debugPush(curTitle, curDtStart, curRecId, curStatus, curRRule[0] != '\0', feedIdx);
+      debugPush(curTitle, curDtStart, curRecId, curStatus, curTzid,
+                curRRule[0] != '\0', feedIdx);
       if (curRRule[0]) seriesPush(curTitle, curDtStart, curRRule, curExdate, feedIdx);
 
       // An instance that was declined or removed arrives as a normal VEVENT
@@ -1598,17 +1745,10 @@ static bool calFetchFeed(const char *calUrl, uint8_t feedIdx,
       } else {
         int y = 0, mo = 0, dd = 0;
         sscanf(curDtStart, "%4d%2d%2dT%2d%2d", &y, &mo, &dd, &hh, &mm);
-        if (isUTC) {
-          int ly = y, lmo = mo, ld = dd, lh = hh, lm = mm, shift = 0;
-          if (utcToLocal(y, mo, dd, hh, mm, ly, lmo, ld, lh, lm, shift)) {
-            hh = lh; mm = lm; curDayShift = shift;
-            snprintf(localDate, sizeof(localDate), "%04d%02d%02d", ly, lmo, ld);
-          } else {
-            snprintf(localDate, sizeof(localDate), "%04d%02d%02d", y, mo, dd);
-          }
-        } else {
-          snprintf(localDate, sizeof(localDate), "%04d%02d%02d", y, mo, dd);
-        }
+        int ly = y, lmo = mo, ld = dd, lh = hh, lm = mm, shift = 0;
+        resolveEventTime(curTzid, isUTC, y, mo, dd, hh, mm, ly, lmo, ld, lh, lm, shift);
+        hh = lh; mm = lm; curDayShift = shift;
+        snprintf(localDate, sizeof(localDate), "%04d%02d%02d", ly, lmo, ld);
       }
 
       int matchDay = -1; // which day 0-6 this event falls on, -1 = not in range
@@ -1656,7 +1796,22 @@ static bool calFetchFeed(const char *calUrl, uint8_t feedIdx,
         if (colon) strlcpy(curTitle, colon+1, sizeof(curTitle));
       } else if (strncmp(l, "DTSTART", 7) == 0) {
         char *colon = strchr(l, ':');
-        if (colon) strlcpy(curDtStart, colon+1, sizeof(curDtStart));
+        if (colon) {
+          strlcpy(curDtStart, colon+1, sizeof(curDtStart));
+          // DTSTART;TZID=America/Denver:20260101T090000 is a wall clock in THAT
+          // zone. Dropping the parameter, as this used to, reads it as ours and
+          // shifts the entry by the difference between the two zones.
+          char *tzp = strstr(l, "TZID=");
+          if (tzp && tzp < colon) {
+            char *v = tzp + 5;
+            char *e = v;
+            while (*e && *e != ';' && *e != ':') e++;
+            size_t n = (size_t)(e - v);
+            if (n >= sizeof(curTzid)) n = sizeof(curTzid) - 1;
+            memcpy(curTzid, v, n);
+            curTzid[n] = '\0';
+          }
+        }
       } else if (strncmp(l, "RRULE", 5) == 0) {
         char *colon = strchr(l, ':');
         if (colon) strlcpy(curRRule, colon+1, sizeof(curRRule));
