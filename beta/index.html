@@ -2,7 +2,7 @@
 <html>
 <head>
     <meta charset="utf-8">
-    <title>TickerTouch — Rankings Get Their Own Column</title>
+    <title>TickerTouch — Ranks In The Ticker</title>
     <style>
         body { font-family: sans-serif; text-align: center; padding: 50px; }
         button { padding: 15px 25px; font-size: 18px; cursor: pointer; }
@@ -16,16 +16,17 @@
     </style>
 </head>
 <body>
-    <h1>TickerTouch — Rankings Get Their Own Column</h1>
-    <p>Version 1.9.8 — beta. Stable is <a href="../">1.9.4</a>.</p>
+    <h1>TickerTouch — Ranks In The Ticker</h1>
+    <p>Version 1.9.9 — beta. Stable is <a href="../">1.9.4</a>.</p>
 
     <p class="what">
-        <strong>#8 was sitting on top of the badge.</strong> The rank label was pinned to the
-        row's top edge at y=1 while the team badge starts at y=11, so the two overlapped and the
-        number read as a smudge on the badge's rounded corner rather than as a rank.<br><br>
-        Each side now has a 24&nbsp;px gutter in the row margin, with the rank centred in it and
-        vertically aligned to the badge. Badges moved inward by 20&nbsp;px to make room, and the
-        scores moved with them, so ranked and unranked teams still line up in the same columns.
+        <strong>The scrolling line now names the rank.</strong> College games showed
+        <code>CFB: TENN 24-17 UK Final</code> while the Sports tab showed <code>#8</code> and
+        <code>#23</code> beside the badges — the same game described two different ways on the
+        same screen.<br><br>
+        Ranked teams now read <code>CFB: #8 TENN 24-17 #23 UK Final</code>. Unranked teams are
+        unchanged, and the per-game buffer was widened so a ranked away team, a ranked home team
+        and a long status cannot truncate each other.
     </p>
 
     <p class="keep">
@@ -37,20 +38,21 @@
     <div class="note">
         <strong>What to check after installing</strong>
         <ul style="margin:8px 0 0 18px; padding:0; line-height:1.7">
-            <li>On a ranked CFB or CBB game, the rank sits in the left margin, clear of the badge.</li>
-            <li>The away rank is left of the away badge, the home rank right of the home badge.</li>
-            <li>Unranked games keep their badges in the same place as ranked ones.</li>
-            <li>Scores, the centre status and the live dot are untouched.</li>
+            <li>A ranked college game shows <code>#8 TENN</code> style entries in the ticker.</li>
+            <li>Unranked games and pro leagues read exactly as before.</li>
+            <li>The lockup matches the Sports tab for the same game.</li>
+            <li>A full slate still scrolls to the end of the sports segment.</li>
         </ul>
     </div>
 
     <p class="fine">
-        Layout only: no change to how ranks are parsed, filtered or shown in the ticker.
+        Display only: the rank was already parsed and already used by the Top 25 filter, so
+        nothing about fetching or filtering changed.
     </p>
 
     <script type="module" src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"></script>
 
-    <esp-web-install-button manifest="./manifest-1_9_8c.json">
+    <esp-web-install-button manifest="./manifest-1_9_9c.json">
         <button slot="activate">Connect and Install</button>
         <span slot="unsupported">Your browser does not support Web Serial — use Chrome or Edge on desktop.</span>
         <span slot="not-allowed">Web Serial needs HTTPS (this page is) and a direct connection.</span>

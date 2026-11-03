@@ -149,14 +149,27 @@ static void buildSportsSegment() {
 
     bool isSched = !strstr(sc.status,"Final") &&
                    (strstr(sc.status,"PM") || strstr(sc.status,"AM"));
-    char buf[80];
+    // Ranks used to appear only on the Sports tab. "#8 TENN" reads as well in a
+    // scrolling line as it does in a row, and a college scoreboard without them
+    // hides the thing that makes a game worth glancing at.
+    char awayT[24], homeT[24];
+    if (sc.awayRank > 0)
+      snprintf(awayT, sizeof(awayT), "#%u %s", (unsigned)sc.awayRank, sc.awayTeam);
+    else
+      strlcpy(awayT, sc.awayTeam, sizeof(awayT));
+    if (sc.homeRank > 0)
+      snprintf(homeT, sizeof(homeT), "#%u %s", (unsigned)sc.homeRank, sc.homeTeam);
+    else
+      strlcpy(homeT, sc.homeTeam, sizeof(homeT));
+
+    char buf[96];   // room for two ranked abbreviations and a long status
     if (isSched)
       snprintf(buf, sizeof(buf), "%s: %s vs %s %s    ",
-        sc.league, sc.awayTeam, sc.homeTeam, sc.status);
+        sc.league, awayT, homeT, sc.status);
     else
       snprintf(buf, sizeof(buf), "%s: %s %s-%s %s (%s)    ",
-        sc.league, sc.awayTeam, sc.awayScore,
-        sc.homeScore, sc.homeTeam, sc.status);
+        sc.league, awayT, sc.awayScore,
+        sc.homeScore, homeT, sc.status);
     strlcat(s.text, buf, sizeof(s.text));
     anyShown = true;
   }
