@@ -1126,8 +1126,8 @@ static uint8_t byDayMask(const char *v, int len) {
   return mask;
 }
 
-static bool recurMatches(const char *rule, const char *dtstart, const char *ymdToday,
-                         const char *exdates) {
+static bool recurMatches(const char *rule, const char *dtstart, int dayShift,
+                         const char *ymdToday, const char *exdates) {
   int my, mm, md, ty, tm, td;
   ymdOf(dtstart, my, mm, md);
   ymdOf(ymdToday, ty, tm, td);
@@ -1175,7 +1175,11 @@ static bool recurMatches(const char *rule, const char *dtstart, const char *ymdT
   }
   if (freq == FREQ_NONE) return false;
 
-  const uint32_t dMaster = civilDays(my, mm, md);
+  // dayShift moves the rule's anchor to the local date: a UTC start late enough
+  // in the evening belongs to the previous local day.
+  const int64_t dMasterSigned = (int64_t)civilDays(my, mm, md) + dayShift;
+  if (dMasterSigned < 0) return false;
+  const uint32_t dMaster = (uint32_t)dMasterSigned;
   const uint32_t dToday  = civilDays(ty, tm, td);
   const int mdiff = (ty - my) * 12 + (tm - mm);
   const int ydiff = ty - my;
@@ -1282,14 +1286,21 @@ void fetchCalendar() {
   char curDtStart[32] = {};
   char curRRule[160] = {};
   char curExdate[160] = {};
+  char curRecId[24] = {};       // RECURRENCE-ID: the date the instance came from
   bool curIsOverride = false;   // this VEVENT edits one instance of a series
   uint8_t stagingCount = 0;
   static CalendarEvent staging[MAX_CAL_EVENTS]; // static — 50 events × ~100 bytes would overflow stack
   // 1 = the entry is an edited instance (came with a RECURRENCE-ID), so it owns
   // that day's slot for its title instead of the master's generated copy.
   static uint8_t stagingFlags[MAX_CAL_EVENTS];
+  // Where each edited instance came from: its title and the date it used to
+  // occupy, so the master's copy of that day can be removed.
+  static char    overTitle[MAX_CAL_EVENTS][64];
+  static char    overDate[MAX_CAL_EVENTS][9];
+  static uint8_t overCount = 0;
   memset(staging, 0, sizeof(staging));
   memset(stagingFlags, 0, sizeof(stagingFlags));
+  overCount = 0;
   int totalBytes = 0;
 
   auto processLine = [&]() {
@@ -1299,7 +1310,8 @@ void fetchCalendar() {
 
     if (strcmp(l, "BEGIN:VEVENT") == 0) {
       inEvent = true; curTitle[0] = '\0'; curDtStart[0] = '\0';
-      curRRule[0] = '\0'; curExdate[0] = '\0'; curIsOverride = false;
+      curRRule[0] = '\0'; curExdate[0] = '\0'; curRecId[0] = '\0';
+      curIsOverride = false;
     } else if (strcmp(l, "END:VEVENT") == 0 && inEvent) {
       inEvent = false;
       if (!strlen(curTitle) || !strlen(curDtStart)) return;
@@ -1334,9 +1346,12 @@ void fetchCalendar() {
       int hh = utcH, mm = utcM;
       if (!isAllDay && !isUTC && strlen(curDtStart) >= 13)
         sscanf(curDtStart + 9, "%2d%2d", &hh, &mm);
+      int curDayShift = 0;
       if (isUTC) {
-        int localMins = hh*60 + mm + (Storage::cfg.tzOffsetSec/60);
-        localMins = ((localMins % 1440) + 1440) % 1440;
+        const int total = hh*60 + mm + (Storage::cfg.tzOffsetSec/60);
+        if (total < 0)        curDayShift = -1;
+        else if (total >= 1440) curDayShift = 1;
+        const int localMins = ((total % 1440) + 1440) % 1440;
         hh = localMins / 60; mm = localMins % 60;
       }
 
@@ -1361,7 +1376,7 @@ void fetchCalendar() {
       if (curRRule[0]) {
         bool any = false;
         for (int d = 0; d < CAL_DAYS; d++) {
-          if (recurMatches(curRRule, curDtStart, dateDays[d], curExdate)) {
+          if (recurMatches(curRRule, curDtStart, curDayShift, dateDays[d], curExdate)) {
             addEvent(d);
             any = true;
           }
@@ -1370,6 +1385,13 @@ void fetchCalendar() {
         if (!any && matchDay >= 0) addEvent(matchDay);
       } else if (matchDay >= 0) {
         addEvent(matchDay);
+      }
+
+      if (curIsOverride && strlen(curRecId) >= 8 && overCount < MAX_CAL_EVENTS) {
+        strlcpy(overTitle[overCount], curTitle, sizeof(overTitle[0]));
+        memcpy(overDate[overCount], curRecId, 8);
+        overDate[overCount][8] = '\0';
+        overCount++;
       }
     } else if (inEvent) {
       if (strncmp(l, "SUMMARY", 7) == 0) {
@@ -1386,9 +1408,11 @@ void fetchCalendar() {
         if (colon) strlcpy(curExdate, colon+1, sizeof(curExdate));
       } else if (strncmp(l, "RECURRENCE-ID", 13) == 0) {
         // The feed ships one copy of a repeating event plus one extra VEVENT for
-        // each instance that was edited. Both land on the same day, which is what
-        // showed the same meeting two or three times.
+        // each instance that was edited. The value is the date the instance used
+        // to occupy, which is how a moved meeting is traced to its old slot.
         curIsOverride = true;
+        char *colon = strchr(l, ':');
+        if (colon) strlcpy(curRecId, colon+1, sizeof(curRecId));
       }
     }
   };
@@ -1443,8 +1467,28 @@ void fetchCalendar() {
   // one is the edit the user actually made, so it wins (including when the time
   // was moved, which is why this cannot just compare timestamps).
   {
+    // 1. A moved instance still occupies its old day as far as the master's rule
+    //    is concerned, so a meeting shifted to next week kept showing on the
+    //    morning it originally held. Remove those copies.
+    static uint8_t dead[MAX_CAL_EVENTS];
+    memset(dead, 0, sizeof(dead));
+    for (int i = 0; i < stagingCount; i++) {
+      if (stagingFlags[i]) continue;
+      for (int k = 0; k < overCount && !dead[i]; k++) {
+        if (strcmp(overTitle[k], staging[i].title) != 0) continue;
+        for (int d = 0; d < CAL_DAYS; d++) {
+          if (d == staging[i].dayOffset && !strncmp(dateDays[d], overDate[k], 8)) {
+            dead[i] = 1;
+            break;
+          }
+        }
+      }
+    }
+
+    // 2. Collapse the remaining copies.
     int kept = 0;
     for (int i = 0; i < stagingCount; i++) {
+      if (dead[i]) continue;
       bool drop = false;
       for (int j = 0; j < kept && !drop; j++) {
         if (strcmp(staging[i].title, staging[j].title) != 0) continue;
