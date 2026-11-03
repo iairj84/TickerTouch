@@ -760,9 +760,10 @@ static void handlePortalSave() {
   String state = server.arg("state");
   state.trim();
   if (state.length()) state.toCharArray(Storage::cfg.state, sizeof(Storage::cfg.state));
-  // Always reset coords on first-time setup so geocoding runs fresh
-  Storage::cfg.lat = 0.0f;
-  Storage::cfg.lon = 0.0f;
+  // Reset coords only when a city actually came with the form. On first run that is
+  // what makes geocoding start fresh, but a later re-save of WiFi carries no city and
+  // used to throw away coordinates that were perfectly good.
+  if (city.length()) { Storage::cfg.lat = 0.0f; Storage::cfg.lon = 0.0f; }
 
   uint16_t sports = 0;
   if (server.arg("nfl").length()) sports |= (1<<0);
@@ -773,14 +774,27 @@ static void handlePortalSave() {
   if (server.arg("mls").length()) sports |= (1<<5);
   if (server.arg("epl").length()) sports |= (1<<6);
   if (server.arg("cbb").length()) sports |= (1<<7);
-  Storage::cfg.sportsLeagues = sports;
+  // The setup page's boxes are static defaults, not the saved selection: NBA, NHL and
+  // MLB arrive pre-ticked, everything else unticked. Applying them on a repeat visit
+  // therefore replaced whatever was chosen with those three - which is what made a
+  // plain WiFi re-save look like the leagues had been reset. Only a genuine first
+  // setup takes leagues from this page; a re-save leaves them alone.
+  Preferences wifiPrefs;
+  wifiPrefs.begin("tickertch_wifi", true);
+  const bool firstSetup = wifiPrefs.getString("ssid", "").isEmpty();
+  wifiPrefs.end();
+  if (firstSetup && sports) Storage::cfg.sportsLeagues = sports;
 
   String stocks = server.arg("stocks");
   if (stocks.length()) stocks.toCharArray(Storage::cfg.stocks, sizeof(Storage::cfg.stocks));
   String finnhub = server.arg("finnhub");
   finnhub.trim();
   if (finnhub.length()) finnhub.toCharArray(Storage::cfg.finnhubKey, sizeof(Storage::cfg.finnhubKey));
-  Storage::cfg.theme = (uint8_t)server.arg("theme").toInt();
+  // Only a form that carried a theme may set one. arg() on a missing field returns an
+  // empty String and toInt() turns that into 0, which is Dark - so re-saving WiFi in
+  // the portal silently reset the theme to the default.
+  if (server.hasArg("theme"))
+    Storage::cfg.theme = (uint8_t)server.arg("theme").toInt();
 
   Preferences prefs;
   prefs.begin("tickertch_wifi", false);
