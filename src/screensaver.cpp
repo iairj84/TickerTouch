@@ -89,10 +89,16 @@ static const size_t IMG_BYTES = (size_t)Slideshow::IMG_W * Slideshow::IMG_H * 2;
 
 static const uint32_t DWELL_MS = 14000;
 static const uint32_t FADE_MS  = 900;
-// Uploads are composed on a 520x300 canvas with the whole photo centred in the
-// 480x216 window; these offsets line that window up exactly with the panel.
-static const int16_t  IMG_OFF_X = -(Slideshow::IMG_W - TFT_WIDTH) / 2;
-static const int16_t  IMG_OFF_Y = -(Slideshow::IMG_H - PHOTO_H) / 2;
+// Width and height of whatever is actually decoded into each slot. New uploads
+// are composed at exactly 480x272, so they land at 0,0 and are drawn 1:1 with
+// no scaling and no edge strips. Older 520x300 uploads are centred and clipped.
+static int16_t        _dscW[2] = { 0, 0 };
+static int16_t        _dscH[2] = { 0, 0 };
+
+static void placeImg(lv_obj_t *obj, uint8_t slot) {
+  if (!obj) return;
+  lv_obj_set_pos(obj, (TFT_WIDTH - _dscW[slot]) / 2, (PHOTO_H - _dscH[slot]) / 2);
+}
 
 static bool ensureBuf(uint8_t slot) {
   if (_buf[slot]) return true;
@@ -110,15 +116,18 @@ static bool loadImage(int idx, uint8_t slot) {
   int w = 0, h = 0;
   const uint32_t t0 = millis();
   if (!Slideshow::decode(idx, _buf[slot], &w, &h)) return false;
+  if (w <= 0 || h <= 0) return false;
   Serial.printf("[Saver] image %d/%d %dx%d in %ums (slot %u)\n",
                 idx + 1, _imgCount, w, h, (unsigned)(millis() - t0), (unsigned)slot);
 
+  _dscW[slot] = (int16_t)w;
+  _dscH[slot] = (int16_t)h;
   lv_img_dsc_t *d = &_dsc[slot];
   d->header.always_zero = 0;
-  d->header.w  = Slideshow::IMG_W;
-  d->header.h  = Slideshow::IMG_H;
+  d->header.w  = (uint32_t)w;
+  d->header.h  = (uint32_t)h;
   d->header.cf = LV_IMG_CF_TRUE_COLOR;
-  d->data_size = IMG_BYTES;
+  d->data_size = (uint32_t)w * (uint32_t)h * 2U;
   d->data      = (const uint8_t*)_buf[slot];
   _imgIdx = idx;
   return true;
@@ -149,14 +158,14 @@ static void imgTimerCb(lv_timer_t *) {
       _imgCount = Slideshow::count();
       if (_imgObjNext) {
         setFrame(_imgObjNext, _cur ^ 1);
-        lv_obj_set_pos(_imgObjNext, IMG_OFF_X, IMG_OFF_Y);
+        placeImg(_imgObjNext, _cur ^ 1);
         lv_obj_set_style_img_opa(_imgObjNext, LV_OPA_TRANSP, 0);
         _phase = 2;
       } else {
         // No second buffer: fall back to a hard cut rather than a broken fade.
         _cur ^= 1;
         setFrame(_imgObj, _cur);
-        lv_obj_set_pos(_imgObj, IMG_OFF_X, IMG_OFF_Y);
+        placeImg(_imgObj, _cur);
         _imgShown = now;
         _phase = 0;
       }
@@ -172,8 +181,8 @@ static void imgTimerCb(lv_timer_t *) {
         setFrame(_imgObj, _cur);
         lv_obj_set_style_img_opa(_imgObj, LV_OPA_COVER, 0);
         lv_obj_set_style_img_opa(_imgObjNext, LV_OPA_TRANSP, 0);
-        lv_obj_set_pos(_imgObj, IMG_OFF_X, IMG_OFF_Y);
-        lv_obj_set_pos(_imgObjNext, IMG_OFF_X, IMG_OFF_Y);
+        placeImg(_imgObj, _cur);
+        placeImg(_imgObjNext, _cur ^ 1);
         _imgShown = now;
         _phase = 0;
       }
@@ -225,13 +234,13 @@ static void showImages() {
   lv_obj_clear_flag(_imgCont, LV_OBJ_FLAG_SCROLLABLE);
 
   _imgObj = lv_img_create(_imgCont);
-  lv_obj_set_pos(_imgObj, IMG_OFF_X, IMG_OFF_Y);
+  placeImg(_imgObj, _cur);
   setFrame(_imgObj, _cur);
 
   // Second frame buffer only if PSRAM allows; without it we cut instead of fade.
   if (ensureBuf(1)) {
     _imgObjNext = lv_img_create(_imgCont);
-    lv_obj_set_pos(_imgObjNext, IMG_OFF_X, IMG_OFF_Y);
+    placeImg(_imgObjNext, _cur ^ 1);
     lv_obj_set_style_img_opa(_imgObjNext, LV_OPA_TRANSP, 0);
   } else {
     _imgObjNext = nullptr;

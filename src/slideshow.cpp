@@ -105,8 +105,6 @@ bool decode(int idx, uint16_t *dst, int *outW, int *outH) {
       return false;
     }
   }
-  _dst = dst; _dstW = IMG_W; _dstH = IMG_H;
-
   if (!jpg->open(f, drawCb)) {
     Serial.printf("[Slideshow] image %d: decoder rejected the file\n", idx);
     f.close();
@@ -122,14 +120,26 @@ bool decode(int idx, uint16_t *dst, int *outW, int *outH) {
     else if (srcW / 4 <= IMG_W && srcH / 4 <= IMG_H)   opts = JPEG_SCALE_QUARTER;
     else                                               opts = JPEG_SCALE_EIGHTH;
   }
+  // Pack the rows at the decoded width, not the buffer capacity, so the caller
+  // can hand LVGL a descriptor that matches the pixels exactly.
+  const int decW = srcW / (opts ? opts : 1);
+  const int decH = srcH / (opts ? opts : 1);
+  if (decW <= 0 || decH <= 0 || decW > IMG_W || decH > IMG_H) {
+    Serial.printf("[Slideshow] image %d: %dx%d does not fit %dx%d\n",
+                  idx, srcW, srcH, IMG_W, IMG_H);
+    jpg->close();
+    f.close();
+    return false;
+  }
+  _dst = dst; _dstW = decW; _dstH = decH;
   jpg->setPixelType(RGB565_LITTLE_ENDIAN);   // matches LV_COLOR_16_SWAP 0
   const bool ok = jpg->decode(0, 0, opts) != 0;
   if (!ok) Serial.printf("[Slideshow] image %d: decode failed (%dx%d)\n", idx, srcW, srcH);
   jpg->close();
   f.close();
 
-  if (outW) *outW = srcW / (opts ? opts : 1);
-  if (outH) *outH = srcH / (opts ? opts : 1);
+  if (outW) *outW = decW;
+  if (outH) *outH = decH;
   return ok;
 }
 
