@@ -1,4 +1,5 @@
 #include "touch.h"
+#include <stdlib.h>   // getenv, for the night-window gate above
 #include "display.h"
 #include "screensaver.h"
 #include "storage.h"
@@ -35,7 +36,11 @@ void tickAutoBrightness() {
   lastCheck = now;
 
   int target = Storage::cfg.brightness;
-  if (Storage::cfg.nightDim) {
+  // getenv("TZ") is set only once a zone has actually been installed. Until then
+  // localtime() reports UTC, and comparing a UTC hour against the local night
+  // window is exactly what dimmed the panel for the first seconds after boot.
+  // Waiting costs nothing: this runs every 20s and re-evaluates once the zone lands.
+  if (Storage::cfg.nightDim && getenv("TZ")) {
     const time_t t = time(nullptr);
     if (t > 100000) {                      // ignore the clock until SNTP lands
       struct tm lt;

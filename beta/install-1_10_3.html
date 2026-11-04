@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>TickerTouch 1.10.3 — Timezone Without The Panic</title>
+    <style>
+        body { font-family: sans-serif; text-align: center; padding: 50px; }
+        button { padding: 15px 25px; font-size: 18px; cursor: pointer; }
+        .what { max-width: 600px; margin: 24px auto; color: #1e3a8a; background: #eff6ff;
+                border: 1px solid #93c5fd; border-radius: 8px; padding: 14px; text-align: left; }
+        .bad  { max-width: 600px; margin: 24px auto; color: #7f1d1d; background: #fef2f2;
+                border: 1px solid #fca5a5; border-radius: 8px; padding: 14px; text-align: left; }
+        .keep { max-width: 600px; margin: 24px auto; color: #14532d; background: #ecfdf5;
+                border: 1px solid #86efac; border-radius: 8px; padding: 14px; text-align: left; }
+        .note { max-width: 600px; margin: 24px auto; text-align: left; color: #333;
+                background: #f4f4f8; border: 1px solid #ddd; border-radius: 8px; padding: 14px; }
+        .fine { color: #666; font-size: 14px; }
+    </style>
+</head>
+<body>
+    <h1>TickerTouch 1.10.3 — Timezone Without The Panic</h1>
+    <p>Version 1.10.3 — beta. Stable is <a href="../">1.9.4</a>.</p>
+
+    <p class="bad">
+        <strong>1.10.2 is withdrawn.</strong> It installed the saved timezone during
+        <code>setup()</code>, which runs on Arduino's 8&nbsp;KB <code>loopTask</code> stack.
+        <code>setenv()</code> and <code>tzset()</code> parse a timezone rule table, and that stack
+        is exactly why all the TLS and setup work lives in its own task. The result was a panic
+        loop on the second boot — after the first boot had saved an offset — with no WiFi and
+        nothing loading. Its installer page and manifest are gone from this site.
+    </p>
+
+    <p class="what">
+        <strong>The same fix, moved to a stack that can hold it.</strong> The zone is now applied
+        at the top of <code>mainTask</code> (40&nbsp;KB, the task that has always called
+        <code>setenv()</code>/<code>tzset()</code> from the timezone lookup) before anything
+        touches <code>localtime()</code>. The header clock is repainted immediately afterwards, so
+        it does not hold a UTC string until its own ten-second timer comes round.<br><br>
+        Separately, the night window now refuses to evaluate until a zone actually exists
+        (<code>TZ</code> is set), because comparing a UTC hour against your local window is what
+        dimmed the panel at boot in the first place. That check is cheap and self-healing: the
+        first 20-second brightness tick after the zone lands uses local time.
+    </p>
+
+    <p class="keep">
+        <strong>Keep your settings:</strong> the installer asks whether to erase the device.
+        <strong>Leave erase off.</strong> If 1.10.2 is panicking and you cannot reach this page
+        from the device's own web server, that does not matter — this installer talks to the board
+        over USB.
+    </p>
+
+    <div class="note">
+        <strong>What to check</strong>
+        <ul style="margin:8px 0 0 18px; padding:0; line-height:1.7">
+            <li>It boots repeatedly — especially the <em>third</em> boot, not just the first.</li>
+            <li>Serial shows <code>[TZ] boot: …</code> from the Main task, then <code>[Boot] WiFi:</code>.</li>
+            <li>Header clock reads local time; on reboot no UTC flash.</li>
+            <li>Panel does not dim at boot unless it is genuinely inside your night window.</li>
+            <li>Dashboard loads: sports, calendar, stocks all populate.</li>
+        </ul>
+    </div>
+
+    <p class="fine">
+        Still on 1.10.1 and want to stay there? <a href="./install-1_10_1.html">That installer still works.</a>
+        Please send the serial log if anything goes wrong — the panic backtrace identifies the
+        failing task far faster than guessing does.
+    </p>
+
+    <script type="module" src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"></script>
+
+    <esp-web-install-button manifest="./manifest-1_10_3c.json">
+        <button slot="activate">Connect and Install</button>
+        <span slot="unsupported">Your browser does not support Web Serial — use Chrome or Edge on desktop.</span>
+        <span slot="not-allowed">Web Serial needs HTTPS (this page is) and a direct connection.</span>
+    </esp-web-install-button>
+
+    <p class="fine">Stable installer: <a href="../">iairj84.github.io/TickerTouch</a> (1.9.4)</p>
+</body>
+</html>

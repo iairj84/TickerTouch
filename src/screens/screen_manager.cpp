@@ -9,6 +9,10 @@
 #include "../../config.h"
 #include <lvgl.h>
 #include <time.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/semphr.h>
+
+extern SemaphoreHandle_t lvglMutex;   // owned by the sketch, guards every LVGL call
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Screen objects (global to this file)
@@ -1501,6 +1505,16 @@ void ScreenManager::applyTheme(uint8_t themeId) {
   lv_timer_create([](lv_timer_t *){
     ESP.restart();
   }, 200, nullptr);
+}
+
+// Repaint just the header clock. Needed for the moment a timezone is installed
+// after the dashboard has already been painted, which is now how boot works: the
+// clock would otherwise hold a UTC string until its own 10s timer came round.
+void ScreenManager::refreshClock() {
+  if (!clockLabel) return;
+  if (xSemaphoreTake(lvglMutex, pdMS_TO_TICKS(500)) != pdTRUE) return;
+  clockTimerCb(nullptr);
+  xSemaphoreGive(lvglMutex);
 }
 
 void ScreenManager::updateTickerText(const char *text) {

@@ -11,5 +11,6 @@ namespace ScreenManager {
   void applyTheme(uint8_t themeId);
   void updateTickerText(const char *text);
   void refreshAllWidgets();
+  void refreshClock();             // repaint the header clock only
 
 } // namespace ScreenManager

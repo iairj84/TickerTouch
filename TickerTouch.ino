@@ -52,6 +52,12 @@ void mainTask(void *) {
   // Subscribe this task to watchdog and set a generous timeout
   // Sports + calendar fetching can take 30+ seconds
   esp_task_wdt_add(NULL);
+  // Install the saved zone before anything reads localtime(): the header and the
+  // night window both do, and until a zone exists localtime() reports UTC. This task
+  // has always run setenv()+tzset() from fetchTimezone(), so it is the proven place
+  // for them. setup() runs on the 8KB loopTask stack and cannot host them.
+  DataManager::applySavedTimezone();
+  ScreenManager::refreshClock();   // the header was painted before the zone existed
   // All network setup runs here, never in setup(). setup() runs on the Arduino
   // loopTask, whose stack is CONFIG_ARDUINO_LOOP_STACK_SIZE (8KB by default) and
   // cannot be raised from the sketch — an mbedTLS handshake alone needs far more
@@ -118,10 +124,10 @@ void setup() {
   Serial.println(F("[Boot] start"));
 
   Storage::begin();
-  // Before the first paint and before the brightness check: both read localtime(),
-  // which stays UTC until a zone is installed. Without this the header shows UTC and,
-  // worse, the night window can match and dim the panel for the first seconds.
-  DataManager::applySavedTimezone();
+  // NOTE: the saved timezone is applied at the top of mainTask, not here. setup()
+  // runs on the 8KB loopTask stack, and setenv()+tzset() parse a zone rule table;
+  // an 8KB stack is why DataManager::begin() was moved out of setup() in the first
+  // place. 1.10.2 put it here and panicked.
 
   Display::begin();
   // Apply saved brightness (Display::begin sets it to 200; override with saved value)
