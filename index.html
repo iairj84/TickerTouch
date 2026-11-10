@@ -2,23 +2,74 @@
 <html>
 <head>
     <meta charset="utf-8">
-    <title>TickerTouch Installer</title>
+    <title>TickerTouch — Installer</title>
     <style>
-        body { font-family: sans-serif; text-align: center; padding: 50px; }
+        body { font-family: sans-serif; text-align: center; padding: 40px 20px; }
         button { padding: 15px 25px; font-size: 18px; cursor: pointer; }
-        .keep { max-width: 560px; margin: 24px auto; color: #14532d; background: #ecfdf5;
+        .what { max-width: 620px; margin: 22px auto; color: #1e3a8a; background: #eff6ff;
+                border: 1px solid #93c5fd; border-radius: 8px; padding: 14px; text-align: left; }
+        .keep { max-width: 620px; margin: 22px auto; color: #14532d; background: #ecfdf5;
                 border: 1px solid #86efac; border-radius: 8px; padding: 14px; text-align: left; }
+        .note { max-width: 620px; margin: 22px auto; text-align: left; color: #333;
+                background: #f4f4f8; border: 1px solid #ddd; border-radius: 8px; padding: 14px; }
         .fine { color: #666; font-size: 14px; }
     </style>
 </head>
 <body>
-    <h1>TickerTouch Firmware Installer</h1>
-    <p>Version 1.9.4 — connect the board via USB and click below.</p>
+    <h1>TickerTouch</h1>
+    <p>Version 1.10.5 — connect the board via USB and click below.</p>
 
     <p class="keep">
-        <strong>Keep your settings:</strong> the installer asks whether to erase the device
-        before flashing. <strong>Leave erase off</strong> — erasing wipes the WiFi credentials,
-        city and league selection, both calendar URLs and the icon choices.
+        <strong>Keep your settings:</strong> the installer asks whether to erase the device.
+        <strong>Leave erase off.</strong> Erasing wipes WiFi, city, leagues, both calendar URLs and
+        the icon choices.
+    </p>
+
+    <p class="what">
+        <strong>New since 1.9.4</strong>
+        <ul style="margin:8px 0 0 18px; padding:0; line-height:1.7">
+            <li><strong>WiFi supervises itself.</strong> The firmware used to connect exactly once at
+                boot and never again — a lost lease or a router reboot meant a power cycle. It now
+                re-associates on its own, and only counts as connected when it actually holds an
+                address (a link reporting <code>0.0.0.0</code> used to look healthy while the
+                settings page and every feed quietly failed).</li>
+            <li><strong>The day boundary is noticed.</strong> At local midnight the retired-row count
+                clears and every feed refetches under the new date, instead of everything keeping
+                yesterday's meaning until a restart.</li>
+            <li><strong>A failed sports fetch keeps the last good scores</strong> rather than
+                committing an empty list and clearing the tab.</li>
+            <li><strong>The clock is local from the first frame.</strong> The saved zone is installed
+                before anything reads <code>localtime()</code>, so no UTC flash — and the night
+                window can no longer compare a UTC hour against your dimming hours and dim the panel
+                at boot.</li>
+            <li><strong>Finished calendar rows retire on the minute</strong>; all-day and
+                past-midnight entries never do, and the tab says "N earlier" instead of claiming the
+                day is empty.</li>
+            <li><strong>Sports parsing</strong> handles full 30–40 game days: 64 games, 50 per
+                league, and no more dropped games from a buffer that compacted mid-block.</li>
+            <li><strong>Settings page</strong> renders from the saved config, so revisiting it no
+                longer resets theme and leagues; sections collapse; fetch-now and per-feed test are
+                there for checking a URL.</li>
+            <li><strong>Rank gutters</strong> on score rows for ranked matchups.</li>
+        </ul>
+    </p>
+
+    <div class="note">
+        <strong>What to check after installing</strong>
+        <ul style="margin:8px 0 0 18px; padding:0; line-height:1.7">
+            <li>It boots repeatedly — restart it two or three times, not just once.</li>
+            <li>Header clock is local immediately; panel does not dim at boot unless it is genuinely
+                inside your night window.</li>
+            <li>Sports, calendar, stocks and weather all populate.</li>
+            <li>Reboot your router once: the device should return on its own within about a minute.</li>
+            <li>Leave it running across midnight and check the morning.</li>
+        </ul>
+    </div>
+
+    <p class="fine">
+        If something is wrong, <a href="./beta/install-1_10_1.html">1.10.1</a> (last build confirmed
+        on hardware) and <a href="./beta/install-1_9_4.html">1.9.4</a> (previous stable) are both
+        still installable.
     </p>
 
     <script type="module" src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"></script>
@@ -26,24 +77,9 @@
     <esp-web-install-button manifest="./manifest.json">
         <button slot="activate">Connect and Install</button>
         <span slot="unsupported">Your browser does not support Web Serial — use Chrome or Edge on desktop.</span>
+        <span slot="not-allowed">Web Serial needs HTTPS (this page is) and a direct connection.</span>
     </esp-web-install-button>
 
-    <p class="fine">
-        This build carries everything since 1.7.2. <strong>Settings</strong> can be exported
-        and restored as a file, and the panel dims itself at night at the hours you choose.
-        <strong>Sections collapse</strong> to headings so thirty fields stop being one wall, and
-        each calendar, the tickers and the crypto list have a <em>Fetch now</em> button that
-        reports what was actually parsed.
-    </p>
-    <p class="fine">
-        The <strong>Calendar</strong> tab and the ticker now drop events once they finish,
-        reading the end time from each feed, and say <em>Today - 2 earlier, nothing left</em>
-        rather than claiming the day was empty.
-    </p>
-    <p class="fine">
-        Settings backup is verified on hardware; restore has not been exercised on a device
-        yet, so keep the file you export.
-    </p>
-    <p class="fine">Test builds are published at <a href="beta/">/beta/</a>.</p>
+    <p class="fine">Test builds, when there are any: <a href="./beta/">beta</a></p>
 </body>
 </html>
