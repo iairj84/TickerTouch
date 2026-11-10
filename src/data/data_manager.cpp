@@ -476,6 +476,9 @@ void fetchSports() {
   noteTry(FEED_SCORES);
   // Use a staging counter so display sees complete old data until new fetch fully done
   uint8_t stagingCount = 0;
+  // Whether any league actually answered. Needed to tell "no games today" apart
+  // from "every request failed", which are very different things to display.
+  bool anyLeagueOk = false;
   uint16_t mask = Storage::cfg.sportsLeagues;
   Serial.printf("[Sports] mask=0x%04X\n", mask);
   if (!mask) { scoreCount = 0; noteOk(FEED_SCORES); scoresReady = true; return; }
@@ -527,6 +530,7 @@ void fetchSports() {
       vTaskDelay(pdMS_TO_TICKS(200));  // reduced from 500
       continue;
     }
+    anyLeagueOk = true;
 
     WiFiClient *stream = http.getStreamPtr();
     int bLen = 0;
@@ -756,8 +760,13 @@ void fetchSports() {
 
   heap_caps_free(buf); // free once at end
 
-  // Atomically commit new scores — display sees complete old set until this point
-  scoreCount = stagingCount;
+  // Commit only on a result that means something. Installing stagingCount
+  // unconditionally blanked the tab whenever every league failed, and because the
+  // display rebuilds on a hash of the data, an empty array counts as a real change:
+  // the tab went empty and stayed empty until a later fetch happened to succeed.
+  if (stagingCount > 0)      scoreCount = stagingCount;
+  else if (anyLeagueOk)     scoreCount = 0;   // leagues answered: genuinely no games
+  else if (scoreCount > 0)  Serial.println(F("[Sports] all leagues failed - keeping previous"));
 
   // Sort within each league: live → final → scheduled
   // Do this per-league to preserve league grouping in the UI
@@ -2401,6 +2410,27 @@ void begin() {
 
 void tick() {
   uint32_t n = millis();
+
+  // A new local day changes what "today" means for every feed: the scoreboard's
+  // date, the calendar's today/tomorrow offsets and the retired-row count all key
+  // off it. Nothing in the fetch loop compares dates, and each feed's own timer
+  // fires on an interval that has no idea a boundary was crossed, so note it here
+  // and refetch everything once instead of hoping the stagger lands right.
+  const time_t tnow = time(nullptr);
+  if (tnow >= 100000) {
+    struct tm lt;
+    if (localtime_r(&tnow, &lt)) {
+      static int lastYday = -1;
+      if (lastYday >= 0 && lt.tm_yday != lastYday) {
+        Serial.printf("[Data] new day (%d -> %d): refreshing every feed\n",
+                      lastYday, lt.tm_yday);
+        calFinishedToday = 0;   // "N earlier" counted yesterday's finished rows
+        forceRefresh();         // re-base every timer under the new date
+        return;
+      }
+      lastYday = lt.tm_yday;
+    }
+  }
 
   // Minute housekeeping: rows that have finished are dropped as the clock passes
   // them, so the Calendar tab and the ticker stop advertising a meeting that is
