@@ -14,6 +14,7 @@ namespace WiFiManager {
   void connectSTA();
   void startSettingsServer(); // non-blocking web UI on port 80 while connected
   void handleSettingsServer();// call from loop or task
+  void superviseLink();       // re-associate when the station link is lost
 
   bool isConnected();
   const char* getIP();

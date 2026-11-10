@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>TickerTouch 1.10.5 — The Missing Reconnect</title>
+    <style>
+        body { font-family: sans-serif; text-align: center; padding: 50px; }
+        button { padding: 15px 25px; font-size: 18px; cursor: pointer; }
+        .what { max-width: 600px; margin: 24px auto; color: #1e3a8a; background: #eff6ff;
+                border: 1px solid #93c5fd; border-radius: 8px; padding: 14px; text-align: left; }
+        .ask  { max-width: 600px; margin: 24px auto; color: #7c2d12; background: #fff7ed;
+                border: 1px solid #fdba74; border-radius: 8px; padding: 14px; text-align: left; }
+        .keep { max-width: 600px; margin: 24px auto; color: #14532d; background: #ecfdf5;
+                border: 1px solid #86efac; border-radius: 8px; padding: 14px; text-align: left; }
+        .note { max-width: 600px; margin: 24px auto; text-align: left; color: #333;
+                background: #f4f4f8; border: 1px solid #ddd; border-radius: 8px; padding: 14px; }
+        .fine { color: #666; font-size: 14px; }
+    </style>
+</head>
+<body>
+    <h1>TickerTouch 1.10.5 — The Missing Reconnect</h1>
+    <p>Version 1.10.5 — beta. Stable is <a href="../">1.9.4</a>.</p>
+
+    <p class="what">
+        <strong>Nothing ever reconnected.</strong> <code>connectSTA()</code> joined the network once
+        at boot, and that was the only <code>WiFi.begin()</code> in the firmware — there was no
+        event handler, no auto-reconnect, no retry anywhere. Lose the lease, reboot the router, or
+        walk out of range, and the device had no path back short of a power cycle.<br><br>
+        Worse, <code>isConnected()</code> was just <code>WiFi.status() == WL_CONNECTED</code>. An
+        association that has lost its address still reports connected, so the firmware believed the
+        network was fine while holding <code>0.0.0.0</code>: the settings page had nothing to answer
+        on, and every feed failed without anything looking wrong. Now <code>isConnected()</code>
+        requires an actual address.<br><br>
+        The web task now supervises the link — it runs whether or not there is one. Every ten
+        seconds it checks for connected <em>plus</em> an address; if that fails it calls
+        <code>WiFi.reconnect()</code>, and every sixth attempt (about a minute) it tears the station
+        down and re-associates from the saved credentials. The captive portal is left alone.
+    </p>
+
+    <p class="note">
+        <strong>What to check</strong>
+        <ul style="margin:8px 0 0 18px; padding:0; line-height:1.7">
+            <li>Note the settings IP, then reboot your router (or unplug its WAN briefly).</li>
+            <li>Within about ten seconds the device is back and the settings page answers again — no power cycle.</li>
+            <li>Serial shows <code>[WiFi] link down (status=… ip=0.0.0.0) - attempt 1</code> and then recovery.</li>
+            <li>Data resumes on its own after the link returns.</li>
+        </ul>
+    </p>
+
+    <p class="ask">
+        <strong>If the screen is still empty while WiFi is genuinely up</strong>, send the
+        <code>/diag</code> page — memory, network and per-feed item/age/failed rows. That separates
+        "fetches dying" from "UI cannot redraw".
+    </p>
+
+    <p class="keep">
+        <strong>Keep your settings:</strong> the installer asks whether to erase the device.
+        <strong>Leave erase off.</strong>
+    </p>
+
+    <p class="fine">
+        Previous build: <a href="./install-1_10_4.html">1.10.4</a>,
+        <a href="./install-1_10_3.html">1.10.3</a>,
+        <a href="./install-1_10_1.html">1.10.1</a>.
+    </p>
+
+    <script type="module" src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"></script>
+
+    <esp-web-install-button manifest="./manifest-1_10_5c.json">
+        <button slot="activate">Connect and Install</button>
+        <span slot="unsupported">Your browser does not support Web Serial — use Chrome or Edge on desktop.</span>
+        <span slot="not-allowed">Web Serial needs HTTPS (this page is) and a direct connection.</span>
+    </esp-web-install-button>
+
+    <p class="fine">Stable installer: <a href="../">iairj84.github.io/TickerTouch</a> (1.9.4)</p>
+</body>
+</html>

@@ -1543,6 +1543,10 @@ static void handleNotFound() {
 
 const char* portalURL() { return "192.168.4.1"; }
 
+// Cached station credentials. The supervisor below has to re-associate long after
+// connectSTA() returned, and re-reading NVS on every check would be wasteful.
+static String _staSsid, _staPass;
+
 // ── Public API ────────────────────────────────────────────────────────────────
 void startCaptivePortal() {
   WiFi.mode(WIFI_AP);
@@ -1565,6 +1569,8 @@ void startCaptivePortal() {
 
   WiFi.softAPdisconnect(true);
   WiFi.mode(WIFI_STA);
+  _staSsid = savedSSID;
+  _staPass = savedPass;
   WiFi.begin(savedSSID.c_str(), savedPass.c_str());
   uint32_t t = millis();
   while (WiFi.status()!=WL_CONNECTED && millis()-t < WIFI_TIMEOUT_MS) {
@@ -1583,6 +1589,8 @@ void connectSTA() {
   String ssid = prefs.getString("ssid", "");
   String pass = prefs.getString("pass", "");
   prefs.end();
+  _staSsid = ssid;
+  _staPass = pass;
   if (ssid.isEmpty()) { Serial.println(F("[WiFi] No credentials")); return; }
   WiFi.mode(WIFI_STA);
   WiFi.begin(ssid.c_str(), pass.c_str());
@@ -1619,9 +1627,53 @@ void startSettingsServer() {
   Serial.printf("[WiFi] Settings at http://%s/\n", WiFi.localIP().toString().c_str());
 }
 
-void handleSettingsServer() { server.handleClient(); }
+void handleSettingsServer() {
+  server.handleClient();
+  // The web task runs whether or not there is a link, which makes it the right
+  // place to babysit one: when the AP goes away or the lease is lost, nothing else
+  // in the firmware ever calls WiFi.begin() again, and the device sits there
+  // reporting "connected" with no address until someone reboots it.
+  superviseLink();
+}
 
-bool isConnected()  { return WiFi.status() == WL_CONNECTED; }
+bool isConnected() {
+  // WL_CONNECTED on its own is not enough: an association that lost its lease
+  // still reports connected while holding no address, and every fetch then fails
+  // while the UI keeps insisting the network is fine.
+  return WiFi.status() == WL_CONNECTED && WiFi.localIP() != IPAddress(0, 0, 0, 0);
+}
+
+void superviseLink() {
+  static uint32_t lastCheck = 0;
+  static uint8_t  tries     = 0;
+  const uint32_t now = millis();
+  if (lastCheck && (now - lastCheck) < 10000) return;
+  lastCheck = now;
+
+  if (isConnected()) { tries = 0; return; }
+  if (portalActive)  return;                    // the portal owns WiFi right now
+  if (_staSsid.isEmpty()) {                     // first check ever: pick up the saved AP
+    Preferences prefs;
+    prefs.begin("tickertch_wifi", true);
+    _staSsid = prefs.getString("ssid", "");
+    _staPass = prefs.getString("pass", "");
+    prefs.end();
+    if (_staSsid.isEmpty()) return;
+  }
+
+  tries++;
+  Serial.printf("[WiFi] link down (status=%d ip=%s) - attempt %u\n",
+                (int)WiFi.status(), getIP(), (unsigned)tries);
+  if (tries % 6 == 0) {
+    // A minute of cheap reconnects has not helped: drop the station and start it
+    // again from the saved credentials, keeping the config on flash.
+    WiFi.disconnect(false, false);
+    WiFi.mode(WIFI_STA);
+    WiFi.begin(_staSsid.c_str(), _staPass.c_str());
+  } else {
+    WiFi.reconnect();
+  }
+}
 const char* getIP() {
   // Static char buffer, not a shared static String: the web task and the LVGL
   // task both call this, and reassigning a String frees the buffer the other
