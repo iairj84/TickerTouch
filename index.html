@@ -17,12 +17,25 @@
 </head>
 <body>
     <h1>TickerTouch</h1>
-    <p>Version 1.10.6 — connect the board via USB and click below.</p>
+    <p>Version 1.10.8 — connect the board via USB and click below.</p>
 
     <p class="keep">
         <strong>Keep your settings:</strong> the installer asks whether to erase the device.
         <strong>Leave erase off.</strong> Erasing wipes WiFi, city, leagues, both calendar URLs and
         the icon choices.
+    </p>
+
+    <p class="what">
+        <strong>New in 1.10.8 — Finance has a second source.</strong> Stocks were asking Yahoo one
+        question per symbol, four separate requests every 30 seconds to the same host, while every
+        other feed spoke to a different one. When that host stopped answering this board, Finance was
+        the only tab that could go dark — and it did, with nothing to fall back on.<br><br>
+        Now the whole symbol list goes out in <strong>one</strong> request, and if that comes back
+        with no prices at all the board asks a second provider (CNBC, a different host on a different
+        edge) in a single request of its own. The two are never mixed, so a tab cannot show prices
+        from two sources at once. Serial names which one answered: <code>[Stocks] SYM $price
+        +x.xx%</code>, with <code>(cnbc)</code> appended when the fallback produced it. The watchlist
+        itself was never the problem — SPY, NWPX, COLM and CRMD all answer normally.
     </p>
 
     <p class="what">
@@ -34,14 +47,14 @@
         every feed on <code>/diag</code> sat on <code>waiting</code> until a reboot. The clock and
         settings page kept working the whole time, which is what made it look like a network
         problem. 1.10.6 records the new day before refreshing, so the boundary fires once and
-        fetching continues.<br><br>
-        <strong>Already on 1.10.5?</strong> It is fetching until the next midnight; rebooting
-        clears the stall but it returns nightly. Install this to fix it.
+        fetching continues.
     </p>
 
     <p class="what">
         <strong>New since 1.9.4</strong>
         <ul style="margin:8px 0 0 18px; padding:0; line-height:1.7">
+            <li><strong>Finance has two providers</strong>, as above, and costs one request per
+                cycle instead of four instead of one per symbol.</li>
             <li><strong>WiFi supervises itself.</strong> The firmware used to connect exactly once at
                 boot and never again — a lost lease or a router reboot meant a power cycle. It now
                 re-associates on its own, and only counts as connected when it actually holds an
@@ -72,6 +85,9 @@
     <div class="note">
         <strong>What to check after installing</strong>
         <ul style="margin:8px 0 0 18px; padding:0; line-height:1.7">
+            <li><strong>Finance fills in within about thirty seconds of boot.</strong> Serial shows
+                one <code>[Stocks]</code> line per symbol, and <code>(cnbc)</code> means the
+                fallback answered.</li>
             <li>It boots repeatedly — restart it two or three times, not just once.</li>
             <li>Header clock is local immediately; panel does not dim at boot unless it is genuinely
                 inside your night window.</li>
@@ -85,10 +101,11 @@
     </div>
 
     <p class="fine">
-        If something is wrong, <a href="./beta/install-1_10_5.html">1.10.5</a> (previous stable, fetches
-        stall at midnight), <a href="./beta/install-1_10_1.html">1.10.1</a> (last build confirmed on
-        hardware) and <a href="./beta/install-1_9_4.html">1.9.4</a> (earlier stable) are all still
-        installable.
+        If something is wrong: <a href="./beta/install-1_10_7.html">1.10.7</a> (one request, Yahoo
+        only), <a href="./beta/install-1_10_6.html">1.10.6</a> (previous stable, before the Finance
+        change), <a href="./beta/install-1_10_5.html">1.10.5</a> (fetches stall at midnight),
+        <a href="./beta/install-1_10_1.html">1.10.1</a> (last build confirmed on hardware) and
+        <a href="./beta/install-1_9_4.html">1.9.4</a> (earlier stable) are all still installable.
     </p>
 
     <script type="module" src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"></script>

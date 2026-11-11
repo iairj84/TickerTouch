@@ -5,7 +5,6 @@
     <title>TickerTouch — Beta</title>
     <style>
         body { font-family: sans-serif; text-align: center; padding: 60px 20px; }
-        button { padding: 15px 25px; font-size: 18px; cursor: pointer; }
         .what { max-width: 600px; margin: 24px auto; color: #1e3a8a; background: #eff6ff;
                 border: 1px solid #93c5fd; border-radius: 8px; padding: 14px; text-align: left; }
         .note { max-width: 560px; margin: 24px auto; text-align: left; color: #333;
@@ -14,43 +13,17 @@
     </style>
 </head>
 <body>
-    <h1>1.10.8 — A Second Source For Finance</h1>
-    <p>Version 1.10.8 — beta. Stable is <a href="../">1.10.6</a>.</p>
-
+    <h1>TickerTouch — Beta</h1>
     <p class="what">
-        <strong>Finance now has two providers on two different hosts.</strong> 1.10.7 cut stocks
-        from four requests per cycle to one, but that request still went to Yahoo alone, so when
-        that host stopped answering this board there was nothing to fall back on. Spark stays first;
-        if it returns nothing, the board asks CNBC instead — one request, a different host, a
-        different edge — and never mixes the two into one set of prices. The serial log says which
-        provider answered.<br><br>
-        The tickers are fine (SPY, NWPX, COLM, CRMD all answer) and so is the network: the same
-        requests from the same public IP succeed from a desktop. The fault is in this board's own
-        connection to that one host.
+        <strong>Nothing in testing right now.</strong><br><br>
+        1.10.8 has moved to stable: one request per cycle for the whole stock list, with a second
+        provider on a different host if the first comes back empty.
+        <a href="../">Install stable 1.10.8 &rarr;</a>
     </p>
 
     <p class="note">
-        <strong>What to check:</strong> Finance fills in within about thirty seconds of boot, serial
-        shows a <code>[Stocks] SYM $price +x.xx%</code> line per symbol (with <code>(cnbc)</code> if
-        the second provider answered), and <code>/diag</code> shows Finance with a recent age.
-        <a href="./install-1_10_8.html">Full notes on the installer page.</a>
-    </p>
-
-    <script type="module" src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"></script>
-
-    <esp-web-install-button manifest="./manifest-1_10_8c.json">
-        <button slot="activate">Connect and Install 1.10.8</button>
-        <span slot="unsupported">Your browser does not support Web Serial — use Chrome or Edge on desktop.</span>
-        <span slot="not-allowed">Web Serial needs HTTPS (this page is) and a direct connection.</span>
-    </esp-web-install-button>
-
-    <p class="note" style="margin-top:28px">
-        <strong>Keep your settings:</strong> the installer asks whether to erase the device.
-        <strong>Leave erase off.</strong>
-    </p>
-
-    <p class="fine">
         Older versions, kept for going back:
+        <a href="./install-1_10_8.html">1.10.8</a> &middot;
         <a href="./install-1_10_7.html">1.10.7</a> &middot;
         <a href="./install-1_10_6.html">1.10.6</a> &middot;
         <a href="./install-1_10_5.html">1.10.5</a> &middot;
@@ -58,5 +31,7 @@
         <a href="./install-1_10_1.html">1.10.1</a> &middot;
         <a href="./install-1_9_4.html">1.9.4</a>
     </p>
+
+    <p class="fine">Stable channel: <a href="../">iairj84.github.io/TickerTouch</a></p>
 </body>
 </html>
