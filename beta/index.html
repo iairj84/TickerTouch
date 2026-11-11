@@ -5,6 +5,7 @@
     <title>TickerTouch — Beta</title>
     <style>
         body { font-family: sans-serif; text-align: center; padding: 60px 20px; }
+        button { padding: 15px 25px; font-size: 18px; cursor: pointer; }
         .what { max-width: 600px; margin: 24px auto; color: #1e3a8a; background: #eff6ff;
                 border: 1px solid #93c5fd; border-radius: 8px; padding: 14px; text-align: left; }
         .note { max-width: 560px; margin: 24px auto; text-align: left; color: #333;
@@ -13,25 +14,49 @@
     </style>
 </head>
 <body>
-    <h1>TickerTouch — Beta</h1>
+    <h1>1.10.9 — Stocks Unstarved, Sports Faster</h1>
+    <p>Version 1.10.9 — beta. Stable is <a href="../">1.10.8</a>.</p>
+
     <p class="what">
-        <strong>Nothing in testing right now.</strong><br><br>
-        1.10.8 has moved to stable: one request per cycle for the whole stock list, with a second
-        provider on a different host if the first comes back empty.
-        <a href="../">Install stable 1.10.8 &rarr;</a>
+        <strong>Stocks was never being fetched at all.</strong> The serial log showed no
+        <code>[Stocks]</code> lines — no attempt, not a refusal. The fetch loop runs one feed at a
+        time, and it stamped each feed's timer on the way into the fetch, so a ~66-second sports pass
+        against a 60-second interval was due again the instant it finished and the stocks check below
+        it was never reached. Timers are now stamped after the fetch, so a slow feed yields to the
+        ones behind it.<br><br>
+        Sports also burned each league's full 12-second timeout after the body had already ended; it
+        now stops as soon as the connection closes with nothing left to parse, so a pass takes
+        seconds instead of a minute.
     </p>
 
     <p class="note">
+        <strong>What to check:</strong> <code>[Stocks]</code> lines appear within about thirty
+        seconds of boot, <code>[Sports] total=N</code> follows the last league almost immediately,
+        and <code>/diag</code> shows every feed with a recent age.
+        <a href="./install-1_10_9.html">Full notes on the installer page.</a>
+    </p>
+
+    <script type="module" src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"></script>
+
+    <esp-web-install-button manifest="./manifest-1_10_9c.json">
+        <button slot="activate">Connect and Install 1.10.9</button>
+        <span slot="unsupported">Your browser does not support Web Serial — use Chrome or Edge on desktop.</span>
+        <span slot="not-allowed">Web Serial needs HTTPS (this page is) and a direct connection.</span>
+    </esp-web-install-button>
+
+    <p class="note" style="margin-top:28px">
+        <strong>Keep your settings:</strong> the installer asks whether to erase the device.
+        <strong>Leave erase off.</strong>
+    </p>
+
+    <p class="fine">
         Older versions, kept for going back:
         <a href="./install-1_10_8.html">1.10.8</a> &middot;
         <a href="./install-1_10_7.html">1.10.7</a> &middot;
         <a href="./install-1_10_6.html">1.10.6</a> &middot;
         <a href="./install-1_10_5.html">1.10.5</a> &middot;
-        <a href="./install-1_10_4.html">1.10.4</a> &middot;
         <a href="./install-1_10_1.html">1.10.1</a> &middot;
         <a href="./install-1_9_4.html">1.9.4</a>
     </p>
-
-    <p class="fine">Stable channel: <a href="../">iairj84.github.io/TickerTouch</a></p>
 </body>
 </html>

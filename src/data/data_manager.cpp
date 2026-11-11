@@ -556,6 +556,11 @@ void fetchSports() {
       // Find next competitors array
       char *cp = strstr(buf, "\"competitors\":[");
       if (!cp) {
+        // Nothing left to parse and nothing more coming: leave now. Spinning
+        // here until the deadline spent each league's full 12s timeout after
+        // its body had already ended - that is what made a five-league pass
+        // take a minute instead of seconds.
+        if (!stream->connected()) break;
         sportsFill(stream, buf, bLen, BSIZ, deadline);
         continue;
       }
@@ -2588,10 +2593,17 @@ void tick() {
     return;
   }
 
-  if ((n-lastWeather) >=REFRESH_WEATHER_MS)  { lastWeather =millis(); fetchWeather();  return; }
+  // Timers are stamped AFTER each fetch, not before. Start-to-start stamping made
+  // an overrunning feed (sports runs ~66s against a 60s interval) due again the
+  // instant it finished, and because this chain returns after every fetch it went
+  // straight back to the top of the queue - which starved stocks completely. That
+  // showed up as zero stock items and not one [Stocks] line in the log, so it read
+  // like an API refusal rather than a fetch that never ran at all. End-to-start
+  // lets a slow feed yield to the feeds behind it.
+  if ((n-lastWeather) >=REFRESH_WEATHER_MS)  { fetchWeather();  lastWeather =millis(); return; }
   if ((n-lastCalendar)>=REFRESH_CALENDAR_MS) {
     if (time(nullptr) < 100000) { lastCalendar = n - REFRESH_CALENDAR_MS + 5000; return; }
-    lastCalendar=millis(); fetchCalendar(); return;
+    fetchCalendar(); lastCalendar=millis(); return;
   }
   // ESPN is asked for "today", and "today" comes from localtime(). Before SNTP
   // lands that is 1970-01-01, so the scoreboard comes back empty and the Sports
@@ -2599,11 +2611,11 @@ void tick() {
   // Hang back and retry every 5s until the clock is real.
   if ((n-lastSports)  >=REFRESH_SPORTS_MS) {
     if (time(nullptr) < 100000) { lastSports = n - REFRESH_SPORTS_MS + 5000; return; }
-    lastSports = millis(); fetchSports(); return;
+    fetchSports(); lastSports = millis(); return;
   }
-  if ((n-lastStocks)  >=REFRESH_STOCKS_MS)   { lastStocks  =millis(); fetchStocks();   return; }
-  if ((n-lastCrypto)  >=REFRESH_CRYPTO_MS)   { lastCrypto  =millis(); fetchCrypto();   return; }
-  if ((n-lastRacing)  >=REFRESH_RACING_MS)   { lastRacing  =millis(); fetchRacing();   return; }
+  if ((n-lastStocks)  >=REFRESH_STOCKS_MS)   { fetchStocks();  lastStocks  =millis(); return; }
+  if ((n-lastCrypto)  >=REFRESH_CRYPTO_MS)   { fetchCrypto();  lastCrypto  =millis(); return; }
+  if ((n-lastRacing)  >=REFRESH_RACING_MS)   { fetchRacing();  lastRacing  =millis(); return; }
 }
 
 } // namespace DataManager

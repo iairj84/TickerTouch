@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>TickerTouch 1.10.9 — Stocks Unstarved, Sports Faster</title>
+    <style>
+        body { font-family: sans-serif; text-align: center; padding: 50px; }
+        button { padding: 15px 25px; font-size: 18px; cursor: pointer; }
+        .what { max-width: 600px; margin: 24px auto; color: #1e3a8a; background: #eff6ff;
+                border: 1px solid #93c5fd; border-radius: 8px; padding: 14px; text-align: left; }
+        .keep { max-width: 600px; margin: 24px auto; color: #14532d; background: #ecfdf5;
+                border: 1px solid #86efac; border-radius: 8px; padding: 14px; text-align: left; }
+        .note { max-width: 600px; margin: 24px auto; text-align: left; color: #333;
+                background: #f4f4f8; border: 1px solid #ddd; border-radius: 8px; padding: 14px; }
+        .fine { color: #666; font-size: 14px; }
+    </style>
+</head>
+<body>
+    <h1>TickerTouch 1.10.9 — Stocks Unstarved, Sports Faster</h1>
+    <p>Version 1.10.9 — beta. Stable is <a href="../">1.10.8</a>.</p>
+
+    <p class="what">
+        <strong>Stocks was never being fetched at all.</strong> The serial log was the giveaway: no
+        <code>[Stocks]</code> lines whatsoever — not a refused request, not an empty response, no
+        attempt. The fetch loop runs one feed at a time and returns after each, and it stamped a
+        feed's timer on the way <em>into</em> the fetch. A sports pass takes about 66 seconds across
+        five leagues against a 60-second interval, so sports was due again the instant it finished,
+        re-entered at the top of the queue every time, and the stocks check below it was never
+        reached. Two providers were never the problem; the fetch never ran.<br><br>
+        Timers are now stamped after the fetch returns, which measures the interval from completion.
+        A slow feed yields to the ones behind it instead of monopolising the loop.
+    </p>
+
+    <p class="what">
+        <strong>Sports also spent each league's full timeout doing nothing.</strong> When a league's
+        body ended, the parser looked for the next <code>"competitors"</code> block, found none, and
+        simply refilled the buffer until the 12-second deadline expired — so every pass burned
+        ~12s per league even though the data had already arrived. It now stops as soon as the
+        connection closes with nothing left to parse, so a pass should complete in a few seconds
+        instead of a minute.
+    </p>
+
+    <p class="keep">
+        <strong>Keep your settings:</strong> the installer asks whether to erase the device.
+        <strong>Leave erase off.</strong>
+    </p>
+
+    <div class="note">
+        <strong>What to check</strong>
+        <ul style="margin:8px 0 0 18px; padding:0; line-height:1.7">
+            <li><code>[Stocks]</code> lines appear within about thirty seconds of boot — four of
+                them, or three plus a <code>no data</code> line.</li>
+            <li>The sports pass finishes in a few seconds: <code>[Sports] total=N</code> follows the
+                last league almost immediately instead of a minute later.</li>
+            <li><code>/diag</code> shows every feed with a recent age, and stocks is no longer the
+                one that never updates.</li>
+            <li>Finance still falls back to CNBC if Yahoo returns nothing — watch for
+                <code>(cnbc)</code> after a price.</li>
+        </ul>
+    </div>
+
+    <p class="fine">
+        Previous build: <a href="./install-1_10_8.html">1.10.8</a>,
+        <a href="./install-1_10_7.html">1.10.7</a>,
+        <a href="./install-1_10_6.html">1.10.6</a>,
+        <a href="./install-1_10_5.html">1.10.5</a>.
+    </p>
+
+    <script type="module" src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"></script>
+
+    <esp-web-install-button manifest="./manifest-1_10_9c.json">
+        <button slot="activate">Connect and Install</button>
+        <span slot="unsupported">Your browser does not support Web Serial — use Chrome or Edge on desktop.</span>
+        <span slot="not-allowed">Web Serial needs HTTPS (this page is) and a direct connection.</span>
+    </esp-web-install-button>
+
+    <p class="fine">Stable installer: <a href="../">iairj84.github.io/TickerTouch</a> (1.10.8)</p>
+</body>
+</html>
