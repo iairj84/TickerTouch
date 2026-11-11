@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>TickerTouch 1.10.7 — Finance That Reloads</title>
+    <style>
+        body { font-family: sans-serif; text-align: center; padding: 50px; }
+        button { padding: 15px 25px; font-size: 18px; cursor: pointer; }
+        .what { max-width: 600px; margin: 24px auto; color: #1e3a8a; background: #eff6ff;
+                border: 1px solid #93c5fd; border-radius: 8px; padding: 14px; text-align: left; }
+        .keep { max-width: 600px; margin: 24px auto; color: #14532d; background: #ecfdf5;
+                border: 1px solid #86efac; border-radius: 8px; padding: 14px; text-align: left; }
+        .note { max-width: 600px; margin: 24px auto; text-align: left; color: #333;
+                background: #f4f4f8; border: 1px solid #ddd; border-radius: 8px; padding: 14px; }
+        .fine { color: #666; font-size: 14px; }
+    </style>
+</head>
+<body>
+    <h1>TickerTouch 1.10.7 — Finance That Reloads</h1>
+    <p>Version 1.10.7 — beta. Stable is <a href="../">1.10.6</a>.</p>
+
+    <p class="what">
+        <strong>Stocks asked Yahoo one question per symbol, four times a minute.</strong> The chart
+        endpoint takes a single ticker per request, so four symbols meant four separate TLS
+        handshakes to the same host every 30 seconds — over two thousand an hour from one home IP.
+        Every other feed uses a different host (ESPN, Open-Meteo, CoinGecko, the calendar), which is
+        why Finance alone went dark while everything else kept loading.<br><br>
+        Spark answers the whole symbol list in a single request, needs no crumb (the quote endpoint
+        answers 401 without one), and carries the price and the day's percent change per symbol. The
+        board now makes <strong>one</strong> request per cycle instead of four, retries once against
+        the other Yahoo edge host if the first refuses, and logs the outcome for every symbol — so a
+        refusal shows up as a status code in the serial log instead of an empty tab.
+    </p>
+
+    <p class="note">
+        <strong>What was ruled out.</strong> The tickers are all valid: SPY, NWPX (Northwest Pipe),
+        COLM and CRMD each answer normally, so nothing about the symbol list was the problem. What
+        stopped was the request path to the chart endpoint, all four at the same moment, while other
+        hosts kept working. That is a property of the endpoint and the board's traffic to it, not of
+        the watchlist.
+    </p>
+
+    <p class="keep">
+        <strong>Keep your settings:</strong> the installer asks whether to erase the device.
+        <strong>Leave erase off.</strong>
+    </p>
+
+    <div class="note">
+        <strong>What to check</strong>
+        <ul style="margin:8px 0 0 18px; padding:0; line-height:1.7">
+            <li>Finance populates within about thirty seconds of boot.</li>
+            <li>Serial shows one <code>[Stocks] SYM $price +x.xx%</code> line per symbol, then
+                <code>[Stocks] done: 4</code>.</li>
+            <li><code>/diag</code> Finance row reads <code>4 items</code> with a recent age and no
+                <code>failed</code> count.</li>
+            <li>If it is still empty, the serial line
+                <code>[HTTP] 429 &lt;- https://query*.finance.yahoo.com/…</code> (or
+                <code>401</code>, or <code>-1</code> for a connection that never completed) names
+                the actual reason — send that one line and it is unambiguous.</li>
+        </ul>
+    </div>
+
+    <p class="fine">
+        Previous build: <a href="./install-1_10_6.html">1.10.6</a>,
+        <a href="./install-1_10_5.html">1.10.5</a>,
+        <a href="./install-1_10_4.html">1.10.4</a>,
+        <a href="./install-1_10_1.html">1.10.1</a>.
+    </p>
+
+    <script type="module" src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"></script>
+
+    <esp-web-install-button manifest="./manifest-1_10_7c.json">
+        <button slot="activate">Connect and Install</button>
+        <span slot="unsupported">Your browser does not support Web Serial — use Chrome or Edge on desktop.</span>
+        <span slot="not-allowed">Web Serial needs HTTPS (this page is) and a direct connection.</span>
+    </esp-web-install-button>
+
+    <p class="fine">Stable installer: <a href="../">iairj84.github.io/TickerTouch</a> (1.10.6)</p>
+</body>
+</html>

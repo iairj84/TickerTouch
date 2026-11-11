@@ -801,23 +801,68 @@ void fetchSports() {
 }
 
 // ── Stocks via Yahoo Finance (no API key required) ────────────────────────────
+// The chart endpoint costs one request per symbol. At four symbols every 30s
+// that is over two thousand TLS handshakes an hour to a single host, which is the
+// pattern that gets a home IP throttled - and a throttled IP shows up as Finance
+// simply never loading while every other feed (different hosts) is fine. Spark
+// takes the whole list in one request and needs no crumb (v7/quote answers 401
+// without one). It also omits any symbol Yahoo has no data for instead of failing
+// the request, so one bad ticker can no longer blank the whole tab.
+// Response: {"SPY":{"fulldayPrice":758.4,"fulldayChangePercent":1.13,...},...}
+static const char *findBetween(const char *from, const char *to, const char *needle) {
+  const size_t n = strlen(needle);
+  for (const char *p = from; p + n <= to; p++)
+    if (memcmp(p, needle, n) == 0) return p;
+  return nullptr;
+}
+
 void fetchStocks() {
   noteTry(FEED_STOCKS);
   if (!strlen(Storage::cfg.stocks)) { stockCount = 0; noteOk(FEED_STOCKS); stocksReady = true; return; }
+  if (!WiFiManager::isConnected())  { noteFail(FEED_STOCKS); stocksReady = true; return; }
 
-  // Yahoo Finance v8 chart API — free, no key, returns current price + day change.
-  // NOTE: the "meta" block is ~630 bytes, so the buffer must be bigger than that
-  // or "chartPreviousClose" gets truncated (that's what zeroed every % change).
-  // Response: {"chart":{"result":[{"meta":{"regularMarketPrice":X,"regularMarketChangePercent":Y,...}}]}}
-  char stockBuf[1024];
+  // Spaces are not legal in a URL, and the old loop stripped them one symbol at a
+  // time. Clean the list once so the request and the parse agree on the names.
+  char syms[sizeof(Storage::cfg.stocks)];
+  size_t sn = 0;
+  for (const char *c = Storage::cfg.stocks; *c && sn < sizeof(syms) - 1; c++)
+    if (*c != ' ') syms[sn++] = (char)toupper((unsigned char)*c);
+  syms[sn] = '\0';
+
+  // ~230 bytes per symbol in the response, so this holds a full list with room.
+  const int SBUF = 3072;
+  char *buf = (char*)heap_caps_malloc(SBUF, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+  if (!buf) {
+    Serial.println(F("[Stocks] alloc fail"));
+    noteFail(FEED_STOCKS);
+    stocksReady = true;
+    return;
+  }
+
+  // query2 is a separate edge: a request the first host refuses often answers there.
+  int len = 0;
+  for (uint8_t host = 0; host < 2 && len <= 0; host++) {
+    esp_task_wdt_reset();
+    char url[512];
+    snprintf(url, sizeof(url),
+      "https://query%u.finance.yahoo.com/v8/finance/spark"
+      "?symbols=%s&range=1d&interval=1d", (unsigned)(host + 1), syms);
+    len = httpGET_buf(url, buf, SBUF - 1, 8000);
+  }
+  if (len <= 0) {
+    // httpGET_buf already logged the status code for a non-200 answer.
+    Serial.printf("[Stocks] no response for '%s'\n", syms);
+    heap_caps_free(buf);
+    noteFail(FEED_STOCKS);
+    stocksReady = true;
+    return;
+  }
 
   // Stage into a temp array and swap at the end: clearing stockCount/stocksReady
   // mid-fetch blanked the cards and made them pop back in a few seconds later.
   StockEntry staging[MAX_STOCKS];
   uint8_t stagingCount = 0;
-
-  char syms[sizeof(Storage::cfg.stocks)];
-  strlcpy(syms, Storage::cfg.stocks, sizeof(syms));
+  const char *bufEnd = buf + len;
 
   char *start = syms;
   while (*start && stagingCount < MAX_STOCKS) {
@@ -825,63 +870,61 @@ void fetchStocks() {
     char *comma = strchr(start, ',');
     if (comma) *comma = '\0';
 
-    char sym[16] = {};
-    int si = 0;
-    for (char *c = start; *c && si < (int)sizeof(sym)-1; c++)
-      if (*c != ' ') sym[si++] = toupper((unsigned char)*c);
-    sym[si] = '\0';
+    char needle[24];
+    snprintf(needle, sizeof(needle), "\"%s\":{", start);
+    const char *obj = strstr(buf, needle);
+    if (obj) {
+      // Bound every field lookup to this symbol's own object. Searching the whole
+      // buffer would let a field this symbol lacks be read from the next one.
+      const char *objEnd = findBetween(obj + 1, bufEnd, "},{");
+      if (!objEnd) objEnd = bufEnd;
 
-    if (si > 0) {
-      char url[200];
-      snprintf(url, sizeof(url),
-        "https://query1.finance.yahoo.com/v8/finance/chart/%s"
-        "?interval=1d&range=1d&includePrePost=false", sym);
-      int len = httpGET_buf(url, stockBuf, sizeof(stockBuf), 8000);
-      if (len > 0) {
-        float price = 0.0f;
-        char *pp = strstr(stockBuf, "\"regularMarketPrice\":");
-        if (pp) {
-          const char *v = strchr(pp, ':');
-          if (v) price = atof(v + 1);
-        }
-
-        // Day change: prefer Yahoo's own percent (right next to the price),
-        // otherwise compute it from the previous close.
-        float dp = 0.0f;
-        char *pc = strstr(stockBuf, "\"regularMarketChangePercent\":");
-        if (pc) {
-          const char *v = strchr(pc, ':');
-          if (v) dp = atof(v + 1);
-        } else {
-          float prev = 0.0f;
-          char *pv = strstr(stockBuf, "\"chartPreviousClose\":");
-          if (!pv) pv = strstr(stockBuf, "\"previousClose\":");
-          if (!pv) pv = strstr(stockBuf, "\"regularMarketPreviousClose\":");
-          if (pv) {
-            const char *v = strchr(pv, ':');
-            if (v) prev = atof(v + 1);
-          }
-          if (prev > 0.01f && price > 0.01f) dp = (price - prev) / prev * 100.0f;
-        }
-
-        if (price > 0.01f) {
-          StockEntry &e = staging[stagingCount];
-          strlcpy(e.symbol, sym, sizeof(e.symbol));
-          e.price = price;
-          e.changePercent = dp;
-          e.marketClosed = false;
-          Serial.printf("[Stocks] %s $%.2f %+.2f%%\n", sym, price, dp);
-          stagingCount++;
-        } else {
-          Serial.printf("[Stocks] %s: no price (len=%d)\n", sym, len);
-        }
-      } else {
-        Serial.printf("[Stocks] %s: fetch failed\n", sym);
+      float price = 0.0f;
+      const char *pp = findBetween(obj, objEnd, "\"fulldayPrice\":");
+      if (pp) price = atof(pp + 15);
+      if (price <= 0.01f) {
+        const char *cl = findBetween(obj, objEnd, "\"close\":[");
+        if (cl) price = atof(cl + 10);   // skip the '['
       }
+
+      if (price > 0.01f) {
+        float dp = 0.0f;
+        const char *pc = findBetween(obj, objEnd, "\"fulldayChangePercent\":");
+        if (pc) {
+          dp = atof(pc + 23);
+        } else {
+          // No percent published: derive it from the previous close.
+          float prev = 0.0f;
+          const char *pv = findBetween(obj, objEnd, "\"chartPreviousClose\":");
+          if (pv) prev = atof(pv + 21);
+          if (prev <= 0.01f) {
+            pv = findBetween(obj, objEnd, "\"previousClose\":");
+            if (pv) prev = atof(pv + 16);
+          }
+          if (prev > 0.01f) dp = (price - prev) / prev * 100.0f;
+        }
+
+        StockEntry &e = staging[stagingCount];
+        strlcpy(e.symbol, start, sizeof(e.symbol));
+        e.price = price;
+        e.changePercent = dp;
+        e.marketClosed = false;
+        Serial.printf("[Stocks] %s $%.2f %+.2f%%\n", e.symbol, price, dp);
+        stagingCount++;
+      } else {
+        Serial.printf("[Stocks] %s: no price in the response\n", start);
+      }
+    } else {
+      // Spark omits a symbol it has no data for. Name it in the log instead of
+      // letting one bad ticker look like a dead feed.
+      Serial.printf("[Stocks] %s: no data for this symbol\n", start);
     }
 
-    if (comma) { *comma = ','; start = comma + 1; } else break;
+    if (comma) start = comma + 1; else break;
   }
+
+  heap_caps_free(buf);
+
   // Commit only on success — a failed fetch keeps the previous prices on screen
   if (stagingCount > 0) {
     memcpy(stocks, staging, stagingCount * sizeof(StockEntry));

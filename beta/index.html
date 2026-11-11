@@ -5,20 +5,48 @@
     <title>TickerTouch — Beta</title>
     <style>
         body { font-family: sans-serif; text-align: center; padding: 60px 20px; }
+        button { padding: 15px 25px; font-size: 18px; cursor: pointer; }
+        .what { max-width: 600px; margin: 24px auto; color: #1e3a8a; background: #eff6ff;
+                border: 1px solid #93c5fd; border-radius: 8px; padding: 14px; text-align: left; }
         .note { max-width: 560px; margin: 24px auto; text-align: left; color: #333;
                 background: #f4f4f8; border: 1px solid #ddd; border-radius: 8px; padding: 14px; }
         .fine { color: #666; font-size: 14px; }
     </style>
 </head>
 <body>
-    <h1>Nothing in testing right now</h1>
-    <p>The newest build is <strong>1.10.6</strong>, and it is the stable release — so there is no
-       separate test build to install.</p>
+    <h1>1.10.7 — Finance That Reloads</h1>
+    <p>Version 1.10.7 — beta. Stable is <a href="../">1.10.6</a>.</p>
 
-    <div class="note">
-        <strong>Use the stable installer:</strong>
-        <a href="../">iairj84.github.io/TickerTouch</a> (1.10.6).
-    </div>
+    <p class="what">
+        <strong>Stocks made four TLS requests to Yahoo every 30 seconds</strong> — one per symbol,
+        because the chart endpoint only takes one ticker at a time. Every other feed uses a different
+        host, which is why Finance alone went dark while everything else kept loading. 1.10.7 asks
+        for the whole symbol list in <em>one</em> request, retries against the other Yahoo edge host
+        if the first refuses, and logs the outcome per symbol so a refusal shows the actual status
+        code instead of an empty tab.<br><br>
+        The tickers themselves are fine — SPY, NWPX, COLM and CRMD all answer normally. The problem
+        was the request path, not the watchlist.
+    </p>
+
+    <p class="note">
+        <strong>What to check:</strong> Finance fills in within about thirty seconds of boot, serial
+        shows one <code>[Stocks] SYM $price +x.xx%</code> line per symbol and then
+        <code>[Stocks] done: 4</code>, and <code>/diag</code> shows Finance with a recent age.
+        <a href="./install-1_10_7.html">Full notes on the installer page.</a>
+    </p>
+
+    <script type="module" src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"></script>
+
+    <esp-web-install-button manifest="./manifest-1_10_7c.json">
+        <button slot="activate">Connect and Install 1.10.7</button>
+        <span slot="unsupported">Your browser does not support Web Serial — use Chrome or Edge on desktop.</span>
+        <span slot="not-allowed">Web Serial needs HTTPS (this page is) and a direct connection.</span>
+    </esp-web-install-button>
+
+    <p class="note" style="margin-top:28px">
+        <strong>Keep your settings:</strong> the installer asks whether to erase the device.
+        <strong>Leave erase off.</strong>
+    </p>
 
     <p class="fine">
         Older versions, kept for going back:
