@@ -1,0 +1,15 @@
+{
+  "name": "TickerTouch 1.10.8 (beta)",
+  "version": "1.10.8",
+  "new_install_prompt_erase": true,
+  "builds": [
+    {
+      "chipFamily": "ESP32-S3",
+      "parts": [
+        { "path": "https://iairj84.github.io/TickerTouch/firmware/TickerTouch_1_10_8_bootloader.bin", "offset": 0 },
+        { "path": "https://iairj84.github.io/TickerTouch/firmware/TickerTouch_1_10_8_partitions.bin", "offset": 32768 },
+        { "path": "https://iairj84.github.io/TickerTouch/firmware/TickerTouch_1_10_8_app.bin", "offset": 65536 }
+      ]
+    }
+  ]
+}

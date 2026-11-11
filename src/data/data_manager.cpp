@@ -800,20 +800,60 @@ void fetchSports() {
   Serial.printf("[Sports] total=%d\n", scoreCount);
 }
 
-// ── Stocks via Yahoo Finance (no API key required) ────────────────────────────
-// The chart endpoint costs one request per symbol. At four symbols every 30s
-// that is over two thousand TLS handshakes an hour to a single host, which is the
-// pattern that gets a home IP throttled - and a throttled IP shows up as Finance
-// simply never loading while every other feed (different hosts) is fine. Spark
-// takes the whole list in one request and needs no crumb (v7/quote answers 401
-// without one). It also omits any symbol Yahoo has no data for instead of failing
-// the request, so one bad ticker can no longer blank the whole tab.
-// Response: {"SPY":{"fulldayPrice":758.4,"fulldayChangePercent":1.13,...},...}
+// ── Stocks ────────────────────────────────────────────────────────────────────
+// One request per cycle for the whole symbol list, and two providers.
+// The chart endpoint takes a single ticker per call, so a four-symbol watchlist
+// cost four TLS handshakes to the same host every 30s while every other feed spoke
+// to a different host - which is why, when that host stopped answering this board,
+// Finance was the only feed that could go dark. Spark answers the whole list at
+// once and needs no crumb (v7/quote answers 401 without one). CNBC is a second
+// provider on a different host and a different edge, tried only when spark returns
+// nothing, so no single endpoint can blank the tab again.
+// Spark response:  {"SPY":{"fulldayPrice":758.4,"fulldayChangePercent":1.13,...},...}
+// CNBC response:   {"FormattedQuoteResult":{"FormattedQuote":[{"symbol":"SPY",...,
+//                   "last":"758.39","change_pct":"+1.13%",...},...]}}
 static const char *findBetween(const char *from, const char *to, const char *needle) {
   const size_t n = strlen(needle);
   for (const char *p = from; p + n <= to; p++)
     if (memcmp(p, needle, n) == 0) return p;
   return nullptr;
+}
+
+// CNBC reports each value as a string ("last":"758.39", "change_pct":"+1.13%"),
+// and the regular-session block precedes the nested ExtendedMktQuote one, so the
+// first match after a symbol is the regular price and not a pre/post-market one.
+static uint8_t parseCnbcQuotes(const char *buf, int len, StockEntry *staging, uint8_t cap) {
+  const char *bufEnd = buf + len;
+  const char *p = buf;
+  uint8_t n = 0;
+  while (n < cap) {
+    const char *sym = findBetween(p, bufEnd, "\"symbol\":\"");
+    if (!sym) break;
+    sym += 10;                                  // past "symbol":"
+    const char *symEnd = findBetween(sym, bufEnd, "\"");
+    if (!symEnd) break;
+    // Bound the lookup to this quote, so a field it lacks is not read from the next.
+    const char *next = findBetween(symEnd, bufEnd, "\"symbol\":\"");
+    const char *objEnd = next ? next : bufEnd;
+
+    const char *lp = findBetween(symEnd, objEnd, "\"last\":\"");
+    const char *cp = findBetween(symEnd, objEnd, "\"change_pct\":\"");
+    const float price = lp ? atof(lp + 8) : 0.0f;
+    const float dp    = cp ? atof(cp + 14) : 0.0f;
+
+    const size_t slen = (size_t)(symEnd - sym);
+    if (price > 0.01f && slen > 0 && slen < sizeof(staging[0].symbol)) {
+      memcpy(staging[n].symbol, sym, slen);
+      staging[n].symbol[slen] = '\0';
+      staging[n].price = price;
+      staging[n].changePercent = dp;
+      staging[n].marketClosed = false;
+      Serial.printf("[Stocks] %s $%.2f %+.2f%% (cnbc)\n", staging[n].symbol, price, dp);
+      n++;
+    }
+    p = objEnd;
+  }
+  return n;
 }
 
 void fetchStocks() {
@@ -829,8 +869,9 @@ void fetchStocks() {
     if (*c != ' ') syms[sn++] = (char)toupper((unsigned char)*c);
   syms[sn] = '\0';
 
-  // ~230 bytes per symbol in the response, so this holds a full list with room.
-  const int SBUF = 3072;
+  // ~250 bytes per symbol in a spark response: MAX_STOCKS is 20, so this holds a
+  // full list rather than silently truncating the tail of a long watchlist.
+  const int SBUF = 6144;
   char *buf = (char*)heap_caps_malloc(SBUF, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
   if (!buf) {
     Serial.println(F("[Stocks] alloc fail"));
@@ -838,6 +879,11 @@ void fetchStocks() {
     stocksReady = true;
     return;
   }
+
+  // Stage into a temp array and swap at the end: clearing stockCount/stocksReady
+  // mid-fetch blanked the cards and made them pop back in a few seconds later.
+  StockEntry staging[MAX_STOCKS];
+  uint8_t stagingCount = 0;
 
   // query2 is a separate edge: a request the first host refuses often answers there.
   int len = 0;
@@ -850,22 +896,15 @@ void fetchStocks() {
     len = httpGET_buf(url, buf, SBUF - 1, 8000);
   }
   if (len <= 0) {
-    // httpGET_buf already logged the status code for a non-200 answer.
-    Serial.printf("[Stocks] no response for '%s'\n", syms);
-    heap_caps_free(buf);
-    noteFail(FEED_STOCKS);
-    stocksReady = true;
-    return;
+    // httpGET_buf already logged the status code for a non-200 answer. Not fatal:
+    // the second provider below is the whole point of not depending on one host.
+    Serial.printf("[Stocks] spark: no response for '%s'\n", syms);
   }
 
-  // Stage into a temp array and swap at the end: clearing stockCount/stocksReady
-  // mid-fetch blanked the cards and made them pop back in a few seconds later.
-  StockEntry staging[MAX_STOCKS];
-  uint8_t stagingCount = 0;
   const char *bufEnd = buf + len;
 
   char *start = syms;
-  while (*start && stagingCount < MAX_STOCKS) {
+  while (len > 0 && *start && stagingCount < MAX_STOCKS) {
     esp_task_wdt_reset();
     char *comma = strchr(start, ',');
     if (comma) *comma = '\0';
@@ -924,6 +963,42 @@ void fetchStocks() {
   }
 
   heap_caps_free(buf);
+
+  // ── Second provider ─────────────────────────────────────────────────────────
+  // Spark is preferred - smaller response, published percent change - but one
+  // provider on one host is what left Finance with no way to load at all. CNBC
+  // answers the same list in a single request from a different host and a
+  // different edge. Only reached when spark produced nothing, so the two are
+  // never mixed into one set of prices.
+  if (stagingCount == 0) {
+    const int CBUF2 = 20480;   // ~1.4KB per quote
+    char *cbuf = (char*)heap_caps_malloc(CBUF2, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    if (!cbuf) {
+      Serial.println(F("[Stocks] cnbc alloc fail"));
+    } else {
+      // CNBC separates symbols with '|', and that has to be percent-encoded.
+      char list[256];
+      size_t li = 0;
+      for (const char *c = syms; *c && li < sizeof(list) - 4; c++) {
+        if (*c == ',') { list[li++] = '%'; list[li++] = '7'; list[li++] = 'C'; }
+        else           { list[li++] = *c; }
+      }
+      list[li] = '\0';
+
+      char url[512];
+      snprintf(url, sizeof(url),
+        "https://quote.cnbc.com/quote-html-webservice/restQuote/symbolType/symbol"
+        "?symbols=%s&requestMethod=itv&noform=1&partnerId=2&fund=1&exthrs=1&output=json",
+        list);
+      esp_task_wdt_reset();
+      int clen = httpGET_buf(url, cbuf, CBUF2 - 1, 10000);
+      if (clen > 0) {
+        stagingCount = parseCnbcQuotes(cbuf, clen, staging, MAX_STOCKS);
+        if (stagingCount == 0) Serial.println(F("[Stocks] cnbc: no prices parsed"));
+      }
+      heap_caps_free(cbuf);
+    }
+  }
 
   // Commit only on success — a failed fetch keeps the previous prices on screen
   if (stagingCount > 0) {

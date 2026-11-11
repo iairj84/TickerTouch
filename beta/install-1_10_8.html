@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>TickerTouch 1.10.8 — A Second Source For Finance</title>
+    <style>
+        body { font-family: sans-serif; text-align: center; padding: 50px; }
+        button { padding: 15px 25px; font-size: 18px; cursor: pointer; }
+        .what { max-width: 600px; margin: 24px auto; color: #1e3a8a; background: #eff6ff;
+                border: 1px solid #93c5fd; border-radius: 8px; padding: 14px; text-align: left; }
+        .keep { max-width: 600px; margin: 24px auto; color: #14532d; background: #ecfdf5;
+                border: 1px solid #86efac; border-radius: 8px; padding: 14px; text-align: left; }
+        .note { max-width: 600px; margin: 24px auto; text-align: left; color: #333;
+                background: #f4f4f8; border: 1px solid #ddd; border-radius: 8px; padding: 14px; }
+        .fine { color: #666; font-size: 14px; }
+    </style>
+</head>
+<body>
+    <h1>TickerTouch 1.10.8 — A Second Source For Finance</h1>
+    <p>Version 1.10.8 — beta. Stable is <a href="../">1.10.6</a>.</p>
+
+    <p class="what">
+        <strong>Finance now has two providers on two different hosts.</strong> 1.10.7 cut the
+        stocks work from four requests per cycle to one, but that one request still went to Yahoo
+        alone. When that host stopped answering this board, there was nothing else to fall back on,
+        which is why Finance was the only tab that could go completely dark while four other feeds
+        on four other hosts kept loading.<br><br>
+        Spark remains the first choice: one request for the whole list, no crumb, a published
+        percent change per symbol. If it returns nothing — a refused request, a connection that
+        never completes, an empty body — the board now asks CNBC instead, in a single request, from
+        a different host and a different edge. The two are never mixed: the second is used only when
+        the first produced no prices at all. The serial log names which one answered.
+    </p>
+
+    <p class="note">
+        <strong>What has been ruled out.</strong> The tickers are valid — SPY, NWPX (Northwest
+        Pipe), COLM and CRMD each answer with a current price. The network is not throttled either:
+        the <em>same</em> requests, from the <em>same</em> public IP, succeed from a desktop,
+        including over HTTP/1.0, with no <code>Accept</code> header, and in bursts of thirty. So the
+        fault is inside this board's own connection to that one host. This build is what makes that
+        fault survivable rather than fatal, and the log is what will name it.
+    </p>
+
+    <p class="keep">
+        <strong>Keep your settings:</strong> the installer asks whether to erase the device.
+        <strong>Leave erase off.</strong>
+    </p>
+
+    <div class="note">
+        <strong>What to check</strong>
+        <ul style="margin:8px 0 0 18px; padding:0; line-height:1.7">
+            <li>Finance populates within about thirty seconds of boot.</li>
+            <li>Serial shows <code>[Stocks] SYM $price +x.xx%</code> per symbol — with
+                <code>(cnbc)</code> after the price if the second provider answered.</li>
+            <li>If both providers fail, send the <code>[HTTP]</code> lines: the status code
+                (<code>429</code>, <code>401</code>, <code>-1</code>) plus the two hostnames is
+                enough to identify the cause.</li>
+        </ul>
+    </div>
+
+    <p class="fine">
+        Previous build: <a href="./install-1_10_7.html">1.10.7</a>,
+        <a href="./install-1_10_6.html">1.10.6</a>,
+        <a href="./install-1_10_5.html">1.10.5</a>,
+        <a href="./install-1_10_1.html">1.10.1</a>.
+    </p>
+
+    <script type="module" src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"></script>
+
+    <esp-web-install-button manifest="./manifest-1_10_8c.json">
+        <button slot="activate">Connect and Install</button>
+        <span slot="unsupported">Your browser does not support Web Serial — use Chrome or Edge on desktop.</span>
+        <span slot="not-allowed">Web Serial needs HTTPS (this page is) and a direct connection.</span>
+    </esp-web-install-button>
+
+    <p class="fine">Stable installer: <a href="../">iairj84.github.io/TickerTouch</a> (1.10.6)</p>
+</body>
+</html>

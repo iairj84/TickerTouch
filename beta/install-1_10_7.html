@@ -20,24 +20,24 @@
     <p>Version 1.10.7 — beta. Stable is <a href="../">1.10.6</a>.</p>
 
     <p class="what">
-        <strong>Stocks asked Yahoo one question per symbol, four times a minute.</strong> The chart
-        endpoint takes a single ticker per request, so four symbols meant four separate TLS
-        handshakes to the same host every 30 seconds — over two thousand an hour from one home IP.
-        Every other feed uses a different host (ESPN, Open-Meteo, CoinGecko, the calendar), which is
-        why Finance alone went dark while everything else kept loading.<br><br>
-        Spark answers the whole symbol list in a single request, needs no crumb (the quote endpoint
-        answers 401 without one), and carries the price and the day's percent change per symbol. The
-        board now makes <strong>one</strong> request per cycle instead of four, retries once against
-        the other Yahoo edge host if the first refuses, and logs the outcome for every symbol — so a
-        refusal shows up as a status code in the serial log instead of an empty tab.
+        <strong>Stocks asked Yahoo one question per symbol.</strong> The chart endpoint takes a single
+        ticker per request, so four symbols meant four separate TLS handshakes to the same host every
+        30 seconds. Every other feed speaks to a different host (ESPN, Open-Meteo, CoinGecko, the
+        calendar), which is why Finance alone went dark while everything else kept loading.<br><br>
+        Spark answers the whole symbol list in <strong>one</strong> request, needs no crumb (the quote
+        endpoint answers 401 without one), and carries the price and the day's percent change per
+        symbol. The board now makes one request per cycle instead of four, retries once against the
+        other Yahoo edge host if the first refuses, and prints the outcome for every symbol — so a
+        refusal shows a status code in the serial log instead of an empty tab.
     </p>
 
     <p class="note">
-        <strong>What was ruled out.</strong> The tickers are all valid: SPY, NWPX (Northwest Pipe),
-        COLM and CRMD each answer normally, so nothing about the symbol list was the problem. What
-        stopped was the request path to the chart endpoint, all four at the same moment, while other
-        hosts kept working. That is a property of the endpoint and the board's traffic to it, not of
-        the watchlist.
+        <strong>What has been ruled out.</strong> The tickers are all valid — SPY, NWPX (Northwest
+        Pipe), COLM and CRMD each answer normally with a current price. The network is not being
+        throttled either: the <em>same</em> requests, from the <em>same</em> public IP, succeed from a
+        desktop, including over HTTP/1.0 and in bursts of thirty. So neither the watchlist nor the
+        address is the problem; something in the board's own connection to that one host is, and
+        that is what the new logging is there to name.
     </p>
 
     <p class="keep">
@@ -51,12 +51,10 @@
             <li>Finance populates within about thirty seconds of boot.</li>
             <li>Serial shows one <code>[Stocks] SYM $price +x.xx%</code> line per symbol, then
                 <code>[Stocks] done: 4</code>.</li>
-            <li><code>/diag</code> Finance row reads <code>4 items</code> with a recent age and no
-                <code>failed</code> count.</li>
-            <li>If it is still empty, the serial line
-                <code>[HTTP] 429 &lt;- https://query*.finance.yahoo.com/…</code> (or
-                <code>401</code>, or <code>-1</code> for a connection that never completed) names
-                the actual reason — send that one line and it is unambiguous.</li>
+            <li>If it is still empty, send the serial lines starting
+                <code>[HTTP]</code> or <code>[Stocks]</code>: <code>429</code> means throttling,
+                <code>401</code> a refused request, <code>-1</code> a connection that never
+                completed, and any of them is enough to identify the cause.</li>
         </ul>
     </div>
 
