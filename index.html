@@ -17,12 +17,26 @@
 </head>
 <body>
     <h1>TickerTouch</h1>
-    <p>Version 1.10.5 — connect the board via USB and click below.</p>
+    <p>Version 1.10.6 — connect the board via USB and click below.</p>
 
     <p class="keep">
         <strong>Keep your settings:</strong> the installer asks whether to erase the device.
         <strong>Leave erase off.</strong> Erasing wipes WiFi, city, leagues, both calendar URLs and
         the icon choices.
+    </p>
+
+    <p class="what">
+        <strong>Fixed in 1.10.6 — data stopped at midnight.</strong> 1.10.5 added a day-rollover
+        check that compared today against the last day it had seen, then returned before recording
+        the new one. The comparison stayed true, so from local midnight onward every tick re-armed
+        the feed timers and returned without fetching: scores froze on yesterday's
+        <code>FINAL</code>, the calendar kept saying <code>Today</code> with yesterday's date, and
+        every feed on <code>/diag</code> sat on <code>waiting</code> until a reboot. The clock and
+        settings page kept working the whole time, which is what made it look like a network
+        problem. 1.10.6 records the new day before refreshing, so the boundary fires once and
+        fetching continues.<br><br>
+        <strong>Already on 1.10.5?</strong> It is fetching until the next midnight; rebooting
+        clears the stall but it returns nightly. Install this to fix it.
     </p>
 
     <p class="what">
@@ -33,9 +47,10 @@
                 re-associates on its own, and only counts as connected when it actually holds an
                 address (a link reporting <code>0.0.0.0</code> used to look healthy while the
                 settings page and every feed quietly failed).</li>
-            <li><strong>The day boundary is noticed.</strong> At local midnight the retired-row count
-                clears and every feed refetches under the new date, instead of everything keeping
-                yesterday's meaning until a restart.</li>
+            <li><strong>The day boundary is noticed — properly.</strong> At local midnight the
+                retired-row count clears and every feed refetches under the new date, instead of
+                everything keeping yesterday's meaning until a restart. (The first attempt at this,
+                in 1.10.5, wedged the fetch loop at midnight; 1.10.6 is the corrected version.)</li>
             <li><strong>A failed sports fetch keeps the last good scores</strong> rather than
                 committing an empty list and clearing the tab.</li>
             <li><strong>The clock is local from the first frame.</strong> The saved zone is installed
@@ -62,14 +77,18 @@
                 inside your night window.</li>
             <li>Sports, calendar, stocks and weather all populate.</li>
             <li>Reboot your router once: the device should return on its own within about a minute.</li>
-            <li>Leave it running across midnight and check the morning.</li>
+            <li><strong>Leave it running across midnight.</strong> In the morning <code>/diag</code>
+                should show every feed with a recent age and no <code>waiting</code>, the calendar
+                header should name the actual date, and serial should show one
+                <code>[Data] new day</code> line rather than one a second.</li>
         </ul>
     </div>
 
     <p class="fine">
-        If something is wrong, <a href="./beta/install-1_10_1.html">1.10.1</a> (last build confirmed
-        on hardware) and <a href="./beta/install-1_9_4.html">1.9.4</a> (previous stable) are both
-        still installable.
+        If something is wrong, <a href="./beta/install-1_10_5.html">1.10.5</a> (previous stable, fetches
+        stall at midnight), <a href="./beta/install-1_10_1.html">1.10.1</a> (last build confirmed on
+        hardware) and <a href="./beta/install-1_9_4.html">1.9.4</a> (earlier stable) are all still
+        installable.
     </p>
 
     <script type="module" src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"></script>
