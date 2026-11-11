@@ -17,7 +17,7 @@
 </head>
 <body>
     <h1>TickerTouch</h1>
-    <p>Version 1.10.8 — connect the board via USB and click below.</p>
+    <p>Version 1.10.9 — connect the board via USB and click below.</p>
 
     <p class="keep">
         <strong>Keep your settings:</strong> the installer asks whether to erase the device.
@@ -26,16 +26,24 @@
     </p>
 
     <p class="what">
-        <strong>New in 1.10.8 — Finance has a second source.</strong> Stocks were asking Yahoo one
-        question per symbol, four separate requests every 30 seconds to the same host, while every
-        other feed spoke to a different one. When that host stopped answering this board, Finance was
-        the only tab that could go dark — and it did, with nothing to fall back on.<br><br>
-        Now the whole symbol list goes out in <strong>one</strong> request, and if that comes back
-        with no prices at all the board asks a second provider (CNBC, a different host on a different
-        edge) in a single request of its own. The two are never mixed, so a tab cannot show prices
-        from two sources at once. Serial names which one answered: <code>[Stocks] SYM $price
-        +x.xx%</code>, with <code>(cnbc)</code> appended when the fallback produced it. The watchlist
-        itself was never the problem — SPY, NWPX, COLM and CRMD all answer normally.
+        <strong>New in 1.10.9 — stocks was never being fetched, and sports wasted a minute.</strong>
+        The fetch loop handles one feed per call and returns after each, and it stamped a feed's
+        timer on the way <em>into</em> the fetch. That measures start-to-start, so a sports pass
+        taking about 66 seconds across five leagues against a 60-second interval was due again the
+        instant it finished: it re-entered at the top of the queue every time and the stocks check
+        below it was never reached. Finance sat at zero items with no <code>[Stocks]</code> line in
+        the log at all — not a refusal, a fetch that never happened.<br><br>
+        Timers are now stamped after the fetch returns, so a slow feed yields to the ones behind it.
+        The sports parser was also spinning to its per-league 12-second deadline after each body had
+        already ended, which is why a five-league pass took a full minute; it now stops as soon as
+        the connection closes with nothing left to parse.
+    </p>
+
+    <p class="what">
+        <strong>Finance asks once, and has a second source (1.10.8).</strong> The whole symbol list
+        goes out in a single request instead of one per symbol, and if that comes back with no prices
+        at all the board asks CNBC — a different host on a different edge — in one request of its
+        own. The two are never mixed, and serial tags a fallback price with <code>(cnbc)</code>.
     </p>
 
     <p class="what">
@@ -53,8 +61,12 @@
     <p class="what">
         <strong>New since 1.9.4</strong>
         <ul style="margin:8px 0 0 18px; padding:0; line-height:1.7">
-            <li><strong>Finance has two providers</strong>, as above, and costs one request per
-                cycle instead of four instead of one per symbol.</li>
+            <li><strong>The fetch schedule can no longer starve a feed.</strong> Intervals are
+                measured from when a fetch finishes, so a slow one yields instead of monopolising
+                the loop — the defect that left Finance permanently empty.</li>
+            <li><strong>Sports finishes promptly.</strong> A league stops parsing when its body ends
+                rather than idling to a timeout.</li>
+            <li><strong>Finance has two providers</strong> and costs one request per cycle.</li>
             <li><strong>WiFi supervises itself.</strong> The firmware used to connect exactly once at
                 boot and never again — a lost lease or a router reboot meant a power cycle. It now
                 re-associates on its own, and only counts as connected when it actually holds an
@@ -85,13 +97,14 @@
     <div class="note">
         <strong>What to check after installing</strong>
         <ul style="margin:8px 0 0 18px; padding:0; line-height:1.7">
-            <li><strong>Finance fills in within about thirty seconds of boot.</strong> Serial shows
-                one <code>[Stocks]</code> line per symbol, and <code>(cnbc)</code> means the
-                fallback answered.</li>
+            <li><strong><code>[Stocks]</code> lines appear within about thirty seconds of boot</strong>
+                — this is the fix to watch. Four of them, or three plus a <code>no data</code> line,
+                and <code>(cnbc)</code> after a price if the first provider refused.</li>
+            <li><strong><code>[Sports] total=N</code> follows the last league almost immediately</strong>
+                instead of a minute later.</li>
             <li>It boots repeatedly — restart it two or three times, not just once.</li>
             <li>Header clock is local immediately; panel does not dim at boot unless it is genuinely
                 inside your night window.</li>
-            <li>Sports, calendar, stocks and weather all populate.</li>
             <li>Reboot your router once: the device should return on its own within about a minute.</li>
             <li><strong>Leave it running across midnight.</strong> In the morning <code>/diag</code>
                 should show every feed with a recent age and no <code>waiting</code>, the calendar
@@ -101,9 +114,10 @@
     </div>
 
     <p class="fine">
-        If something is wrong: <a href="./beta/install-1_10_7.html">1.10.7</a> (one request, Yahoo
-        only), <a href="./beta/install-1_10_6.html">1.10.6</a> (previous stable, before the Finance
-        change), <a href="./beta/install-1_10_5.html">1.10.5</a> (fetches stall at midnight),
+        If something is wrong: <a href="./beta/install-1_10_8.html">1.10.8</a> (previous stable,
+        Finance still starved), <a href="./beta/install-1_10_7.html">1.10.7</a>,
+        <a href="./beta/install-1_10_6.html">1.10.6</a> (midnight fix, before the Finance change),
+        <a href="./beta/install-1_10_5.html">1.10.5</a> (fetches stall at midnight),
         <a href="./beta/install-1_10_1.html">1.10.1</a> (last build confirmed on hardware) and
         <a href="./beta/install-1_9_4.html">1.9.4</a> (earlier stable) are all still installable.
     </p>
