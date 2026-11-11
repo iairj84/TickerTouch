@@ -2421,14 +2421,22 @@ void tick() {
     struct tm lt;
     if (localtime_r(&tnow, &lt)) {
       static int lastYday = -1;
-      if (lastYday >= 0 && lt.tm_yday != lastYday) {
+      const int today = lt.tm_yday;
+      if (lastYday >= 0 && today != lastYday) {
         Serial.printf("[Data] new day (%d -> %d): refreshing every feed\n",
-                      lastYday, lt.tm_yday);
+                      lastYday, today);
+        // Advance the marker BEFORE returning. Leaving it on yesterday made this
+        // branch true again on the very next tick: every second then called
+        // forceRefresh() and returned before the fetch dispatch below, so the ready
+        // flags were cleared and all the timers re-armed forever. Nothing was ever
+        // fetched again after midnight - every feed sat on "waiting" with the last
+        // fetch from the evening before, until a reboot.
+        lastYday = today;
         calFinishedToday = 0;   // "N earlier" counted yesterday's finished rows
         forceRefresh();         // re-base every timer under the new date
         return;
       }
-      lastYday = lt.tm_yday;
+      lastYday = today;
     }
   }
 

@@ -5,23 +5,50 @@
     <title>TickerTouch — Beta</title>
     <style>
         body { font-family: sans-serif; text-align: center; padding: 60px 20px; }
+        button { padding: 15px 25px; font-size: 18px; cursor: pointer; }
+        .bad  { max-width: 600px; margin: 24px auto; color: #7f1d1d; background: #fef2f2;
+                border: 1px solid #fca5a5; border-radius: 8px; padding: 14px; text-align: left; }
         .note { max-width: 560px; margin: 24px auto; text-align: left; color: #333;
                 background: #f4f4f8; border: 1px solid #ddd; border-radius: 8px; padding: 14px; }
         .fine { color: #666; font-size: 14px; }
     </style>
 </head>
 <body>
-    <h1>Nothing in testing right now</h1>
-    <p>The newest build is <strong>1.10.5</strong>, and it is the stable release — so there is no
-       separate test build to install.</p>
+    <h1>1.10.6 — Surviving Midnight</h1>
+    <p>Version 1.10.6 — beta. Stable is <a href="../">1.10.5</a>.</p>
 
-    <div class="note">
-        <strong>Use the stable installer:</strong>
-        <a href="../">iairj84.github.io/TickerTouch</a> (1.10.5).
-    </div>
+    <p class="bad">
+        <strong>Stable 1.10.5 stops fetching data at local midnight</strong> — scores, calendar,
+        stocks, crypto and weather all freeze on the evening's last fetch, and the calendar keeps
+        claiming <code>Today</code> with yesterday's date. Its day-rollover check never records the
+        new day, so every tick re-arms the timers and returns without fetching. Rebooting clears it
+        until the next midnight. 1.10.6 advances the marker before returning, so the boundary is
+        handled once and fetching continues.
+    </p>
+
+    <p class="note">
+        <strong>What to check:</strong> the dashboard loads normally now; after the next local
+        midnight <code>/diag</code> shows recent ages for every feed instead of everything frozen
+        at 23:5x, and the calendar header names the actual date.
+        <a href="./install-1_10_6.html">Full notes on the installer page.</a>
+    </p>
+
+    <script type="module" src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"></script>
+
+    <esp-web-install-button manifest="./manifest-1_10_6c.json">
+        <button slot="activate">Connect and Install 1.10.6</button>
+        <span slot="unsupported">Your browser does not support Web Serial — use Chrome or Edge on desktop.</span>
+        <span slot="not-allowed">Web Serial needs HTTPS (this page is) and a direct connection.</span>
+    </esp-web-install-button>
+
+    <p class="note" style="margin-top:28px">
+        <strong>Keep your settings:</strong> the installer asks whether to erase the device.
+        <strong>Leave erase off.</strong>
+    </p>
 
     <p class="fine">
         Older versions, kept for going back:
+        <a href="./install-1_10_5.html">1.10.5</a> &middot;
         <a href="./install-1_10_4.html">1.10.4</a> &middot;
         <a href="./install-1_10_3.html">1.10.3</a> &middot;
         <a href="./install-1_10_1.html">1.10.1</a> &middot;
